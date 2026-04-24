@@ -6,10 +6,9 @@ export type SalesforceCredentials = {
   url: string;
   username: string;
   password: string;
+  /** Base32 secret from Salesforce Authenticator (or compatible app) setup — used to derive the 6-digit code. */
+  totpSecret: string;
 };
-
-const DEFAULT_RELATIVE =
-  "credentials" + path.sep + "salesforce-credentials.xlsx";
 
 function normalizeKey(key: string): string {
   return String(key).trim().toLowerCase().replace(/\s+/g, "");
@@ -32,7 +31,7 @@ function pick(
 }
 
 /**
- * Loads Salesforce URL, username, and password from the first worksheet
+ * Loads Salesforce URL, username, password, and TOTP secret from the first worksheet
  * of the Excel file. Uses the first data row only (row after the header).
  */
 export function loadSalesforceCredentials(
@@ -72,17 +71,27 @@ export function loadSalesforceCredentials(
   const url = pick(row, ["url", "loginurl", "salesforceurl", "instanceurl"]);
   const username = pick(row, ["username", "user", "email", "userid"]);
   const password = pick(row, ["password", "pwd", "pass"]);
+  const totpSecret = pick(row, [
+    "totpsecret",
+    "totp",
+    "mfasecret",
+    "authenticatorsecret",
+    "2fasecret",
+    "otpsecret",
+    "verificationsecret",
+  ]);
 
   const missing: string[] = [];
   if (!url) missing.push("URL");
   if (!username) missing.push("Username");
   if (!password) missing.push("Password");
+  if (!totpSecret) missing.push("TOTP Secret");
   if (missing.length > 0) {
     throw new Error(
       `Missing columns in first data row (${missing.join(", ")}). ` +
-        `Expected headers such as URL, Username, Password in: ${filePath}`,
+        `Expected URL, Username, Password, TOTP Secret (Base32) in: ${filePath}`,
     );
   }
 
-  return { url, username, password };
+  return { url, username, password, totpSecret };
 }
