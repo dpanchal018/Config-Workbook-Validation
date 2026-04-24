@@ -14,7 +14,7 @@ import {
   waitForSalesforceHome,
 } from "../lib/salesforceNavigation";
 
-test("Salesforce login, Leads list, New Lead modal screenshot", async ({
+test("Salesforce login, Leads, New Lead modal, Procurement Classification section", async ({
   page,
 }, testInfo) => {
   const creds = loadSalesforceCredentials();
