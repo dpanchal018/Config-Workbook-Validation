@@ -150,14 +150,21 @@ export async function captureNewLeadModalScreenshot(
 const PROCUREMENT_SECTION = /Procurement Classification/i;
 
 /**
- * The "Procurement Classification" block inside the New Lead modal (SLDS section, fieldset, or layout section).
+ * The "Procurement Classification" block inside the New Lead modal (region, SLDS section, fieldset, or layout section).
  */
 export async function procurementClassificationSection(
   modal: Locator,
 ): Promise<Locator> {
+  const byRegion = modal
+    .getByRole("region", { name: PROCUREMENT_SECTION })
+    .first();
+  if (await byRegion.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    return byRegion;
+  }
+
   const section = modal
     .locator(
-      ".slds-section, fieldset.slds-form-element, lightning-record-layout-section, .slds-card",
+      ".slds-section, fieldset.slds-form-element, lightning-record-layout-section",
     )
     .filter({ hasText: PROCUREMENT_SECTION })
     .first();
