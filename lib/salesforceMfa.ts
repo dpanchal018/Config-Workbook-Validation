@@ -155,6 +155,11 @@ export async function afterPasswordSubmit(
       .catch(() => false);
 
     if (multiReady || singleReady) {
+      if (!totpSecret.trim()) {
+        throw new Error(
+          "Salesforce is asking for a verification code. Add a non-empty TOTP Secret (Base32) column to credentials/salesforce-credentials.xlsx.",
+        );
+      }
       const code = generateTotpCode(totpSecret);
       await fillSixDigitVerification(page, code);
       await page.waitForFunction(
