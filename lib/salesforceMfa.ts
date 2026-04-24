@@ -183,11 +183,30 @@ export async function afterPasswordSubmit(
       .catch(() => false);
 
     if (multiReady || singleReady) {
-      if (!totpSecret.trim()) {
-        throw new Error(
-          "Salesforce is asking for a verification code. Add a non-empty TOTP Secret (Base32) column to credentials/salesforce-credentials.xlsx.",
-        );
+      const graceMs = userVerificationGraceMs();
+      const finishedManually = await waitWhileUserCanEnterCode(page, graceMs);
+      if (finishedManually) {
+        return;
       }
+
+      if (!totpSecret.trim()) {
+        await page.waitForFunction(
+          () => {
+            const u = location.href;
+            return (
+              /lightning\.force\.com|\.lightning\.force\.com|one\.salesforce\.com/i.test(
+                u,
+              ) ||
+              (/\.my\.salesforce\.com\//i.test(u) && !/\/login/i.test(u)) ||
+              (!/login\.salesforce\.com|test\.salesforce\.com/i.test(u) &&
+                /salesforce\.com/i.test(u))
+            );
+          },
+          { timeout: 180_000 },
+        );
+        return;
+      }
+
       const code = generateTotpCode(totpSecret);
       await fillSixDigitVerification(page, code);
       await page.waitForFunction(
