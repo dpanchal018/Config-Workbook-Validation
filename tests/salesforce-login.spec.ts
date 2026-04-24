@@ -4,10 +4,12 @@ import { stepPassed } from "../lib/stepStatus";
 import {
   captureLeadListViewScreenshot,
   captureNewLeadModalScreenshot,
+  captureProcurementClassificationSectionScreenshot,
   clickNewLeadButton,
   homeSettleMs,
   leadListSettleMs,
   navigateToLeadList,
+  procurementClassificationSection,
   waitForNewLeadModal,
   waitForSalesforceHome,
 } from "../lib/salesforceNavigation";
@@ -72,5 +74,17 @@ test("Salesforce login, Leads list, New Lead modal screenshot", async ({
       contentType: "image/png",
     });
     stepPassed("New Lead modal");
+  });
+
+  await test.step("Procurement Classification section", async () => {
+    const modal = await waitForNewLeadModal(page);
+    const section = await procurementClassificationSection(modal);
+    const sectionPath =
+      await captureProcurementClassificationSectionScreenshot(section);
+    await testInfo.attach("procurement-classification-section.png", {
+      path: sectionPath,
+      contentType: "image/png",
+    });
+    stepPassed("Procurement Classification section");
   });
 });

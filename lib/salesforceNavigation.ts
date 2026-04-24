@@ -146,3 +146,35 @@ export async function captureNewLeadModalScreenshot(
   await modal.screenshot({ path: filePath });
   return filePath;
 }
+
+const PROCUREMENT_SECTION = /Procurement Classification/i;
+
+/**
+ * The "Procurement Classification" block inside the New Lead modal (SLDS section, fieldset, or layout section).
+ */
+export async function procurementClassificationSection(
+  modal: Locator,
+): Promise<Locator> {
+  const section = modal
+    .locator(
+      ".slds-section, fieldset.slds-form-element, lightning-record-layout-section, .slds-card",
+    )
+    .filter({ hasText: PROCUREMENT_SECTION })
+    .first();
+
+  await section.waitFor({ state: "visible", timeout: 45_000 });
+  return section;
+}
+
+/** Screenshot of the Procurement Classification section only (not the full modal). */
+export async function captureProcurementClassificationSectionScreenshot(
+  section: Locator,
+  fileName = "procurement-classification-section.png",
+): Promise<string> {
+  const outDir = path.join(process.cwd(), "test-results");
+  fs.mkdirSync(outDir, { recursive: true });
+  const filePath = path.join(outDir, fileName);
+  await section.scrollIntoViewIfNeeded();
+  await section.screenshot({ path: filePath });
+  return filePath;
+}
