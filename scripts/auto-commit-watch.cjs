@@ -5,6 +5,13 @@ const path = require("path");
 
 const root = path.join(__dirname, "..");
 
+try {
+  execSync("git rev-parse --git-dir", { cwd: root, stdio: "pipe" });
+} catch {
+  console.error("[auto-commit] Not a git repository:", root);
+  process.exit(1);
+}
+
 function run(cmd) {
   execSync(cmd, { cwd: root, stdio: "inherit", shell: true });
 }
