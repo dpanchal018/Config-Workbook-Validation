@@ -109,16 +109,30 @@ export async function clickNewLeadButton(page: Page): Promise<void> {
  * Returns the locator to screenshot (modal container).
  */
 export async function waitForNewLeadModal(page: Page): Promise<Locator> {
-  const outer = page.locator(".slds-modal.slds-fade-in-open").first();
-  await outer.waitFor({ state: "visible", timeout: 45_000 });
-  const inner = outer.locator(".slds-modal__container").first();
-  if (await inner.isVisible().catch(() => false)) {
-    return inner;
+  const deadline = Date.now() + 45_000;
+  while (Date.now() < deadline) {
+    const outer = page.locator(".slds-modal.slds-fade-in-open").first();
+    if (await outer.isVisible().catch(() => false)) {
+      const inner = outer.locator(".slds-modal__container").first();
+      if (await inner.isVisible().catch(() => false)) {
+        return inner;
+      }
+      return outer;
+    }
+
+    const dialog = page.getByRole("dialog").first();
+    if (await dialog.isVisible().catch(() => false)) {
+      const inner = dialog.locator(".slds-modal__container").first();
+      if (await inner.isVisible().catch(() => false)) {
+        return inner;
+      }
+      return dialog;
+    }
+
+    await page.waitForTimeout(250);
   }
 
-  const dialog = page.getByRole("dialog").first();
-  await dialog.waitFor({ state: "visible", timeout: 10_000 });
-  return dialog;
+  throw new Error("New Lead modal did not open within 45s");
 }
 
 /** Saves a screenshot of the New Lead modal under test-results/. */

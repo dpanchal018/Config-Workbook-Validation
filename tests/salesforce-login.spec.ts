@@ -2,13 +2,16 @@ import { test, expect } from "@playwright/test";
 import { loadSalesforceCredentials } from "../lib/loadCredentials";
 import {
   captureLeadListViewScreenshot,
+  captureNewLeadModalScreenshot,
+  clickNewLeadButton,
   homeSettleMs,
   leadListSettleMs,
   navigateToLeadList,
+  waitForNewLeadModal,
   waitForSalesforceHome,
 } from "../lib/salesforceNavigation";
 
-test("Salesforce login, open Leads list, capture screenshot", async ({
+test("Salesforce login, Leads list, New Lead modal screenshot", async ({
   page,
 }, testInfo) => {
   const creds = loadSalesforceCredentials();
@@ -50,6 +53,16 @@ test("Salesforce login, open Leads list, capture screenshot", async ({
   const shotPath = await captureLeadListViewScreenshot(page);
   await testInfo.attach("lead-list-view.png", {
     path: shotPath,
+    contentType: "image/png",
+  });
+
+  await clickNewLeadButton(page);
+  const modal = await waitForNewLeadModal(page);
+  await page.waitForTimeout(800);
+
+  const modalShotPath = await captureNewLeadModalScreenshot(modal);
+  await testInfo.attach("new-lead-modal.png", {
+    path: modalShotPath,
     contentType: "image/png",
   });
 });
