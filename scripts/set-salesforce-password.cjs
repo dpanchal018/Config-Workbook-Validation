@@ -50,17 +50,27 @@ wb.Sheets[sn] = XLSX.utils.aoa_to_sheet(aoa);
 const dir = path.dirname(fp);
 const tmp = path.join(dir, `.salesforce-credentials.${process.pid}.tmp.xlsx`);
 try {
-  XLSX.writeFile(wb, tmp);
-  fs.renameSync(tmp, fp);
+  try {
+    XLSX.writeFile(wb, fp);
+  } catch {
+    XLSX.writeFile(wb, tmp);
+    try {
+      fs.renameSync(tmp, fp);
+    } catch {
+      fs.copyFileSync(tmp, fp);
+      fs.unlinkSync(tmp);
+    }
+  }
 } catch (e) {
   try {
-    fs.unlinkSync(tmp);
+    if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
   } catch {
     /* ignore */
   }
   console.error(e.message);
   console.error(
-    "\nClose Excel (and pause OneDrive sync if needed), then run this script again.",
+    "\nClose Excel and any preview of the workbook, then run this script again.",
+    "If the project is under OneDrive, try again after sync finishes or move the file out briefly.",
   );
   process.exit(1);
 }
