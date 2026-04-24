@@ -1,7 +1,16 @@
 import { test, expect } from "@playwright/test";
 import { loadSalesforceCredentials } from "../lib/loadCredentials";
+import {
+  captureLeadListViewScreenshot,
+  homeSettleMs,
+  leadListSettleMs,
+  navigateToLeadList,
+  waitForSalesforceHome,
+} from "../lib/salesforceNavigation";
 
-test("Salesforce login using Excel credentials", async ({ page }) => {
+test("Salesforce login, open Leads list, capture screenshot", async ({
+  page,
+}, testInfo) => {
   const creds = loadSalesforceCredentials();
 
   await page.goto(creds.url, { waitUntil: "domcontentloaded" });
@@ -11,4 +20,30 @@ test("Salesforce login using Excel credentials", async ({ page }) => {
   await page.locator("#Login").click();
 
   await expect(page.locator("#error")).toBeHidden({ timeout: 120_000 });
+
+  await waitForSalesforceHome(page);
+  await page.waitForLoadState("networkidle", { timeout: 90_000 }).catch(() => {});
+  await page.waitForTimeout(homeSettleMs());
+
+  await navigateToLeadList(page);
+
+  await expect(page).toHaveURL(/\/lightning\/o\/Lead\/list/i, {
+    timeout: 60_000,
+  });
+  await page.waitForLoadState("networkidle", { timeout: 90_000 }).catch(() => {});
+  await page.waitForTimeout(leadListSettleMs());
+
+  await page
+    .locator(
+      'lightning-datatable, [role="grid"], table.slds-table, .listViewManager, [data-aura-class*="ListView"]',
+    )
+    .first()
+    .waitFor({ state: "visible", timeout: 60_000 })
+    .catch(() => {});
+
+  const shotPath = await captureLeadListViewScreenshot(page);
+  await testInfo.attach("lead-list-view.png", {
+    path: shotPath,
+    contentType: "image/png",
+  });
 });
