@@ -11,6 +11,8 @@ import {
 test("Salesforce login, open Leads list, capture screenshot", async ({
   page,
 }, testInfo) => {
+  test.setTimeout(180_000);
+
   const creds = loadSalesforceCredentials();
 
   await page.goto(creds.url, { waitUntil: "domcontentloaded" });
@@ -22,7 +24,13 @@ test("Salesforce login, open Leads list, capture screenshot", async ({
   await expect(page.locator("#error")).toBeHidden({ timeout: 120_000 });
 
   await waitForSalesforceHome(page);
-  await page.waitForLoadState("networkidle", { timeout: 90_000 }).catch(() => {});
+  // Lightning keeps long-lived connections; "networkidle" often never fires and burns the test timeout.
+  await page.waitForLoadState("load", { timeout: 30_000 }).catch(() => {});
+  await page
+    .locator(".oneContent, .slds-template__container, #oneAppContainerRoot")
+    .first()
+    .waitFor({ state: "attached", timeout: 45_000 })
+    .catch(() => {});
   await page.waitForTimeout(homeSettleMs());
 
   await navigateToLeadList(page);
@@ -30,7 +38,7 @@ test("Salesforce login, open Leads list, capture screenshot", async ({
   await expect(page).toHaveURL(/\/lightning\/o\/Lead\/list/i, {
     timeout: 60_000,
   });
-  await page.waitForLoadState("networkidle", { timeout: 90_000 }).catch(() => {});
+  await page.waitForLoadState("load", { timeout: 30_000 }).catch(() => {});
   await page.waitForTimeout(leadListSettleMs());
 
   await page
