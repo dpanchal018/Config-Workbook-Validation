@@ -6,8 +6,6 @@ export type SalesforceCredentials = {
   url: string;
   username: string;
   password: string;
-  /** Base32 secret from Salesforce Authenticator setup; empty if not in the sheet yet. */
-  totpSecret: string;
 };
 
 function normalizeKey(key: string): string {
@@ -31,7 +29,7 @@ function pick(
 }
 
 /**
- * Loads Salesforce URL, username, password, and TOTP secret from the first worksheet
+ * Loads Salesforce URL, username, and password from the first worksheet
  * of the Excel file. Uses the first data row only (row after the header).
  */
 export function loadSalesforceCredentials(
@@ -71,15 +69,6 @@ export function loadSalesforceCredentials(
   const url = pick(row, ["url", "loginurl", "salesforceurl", "instanceurl"]);
   const username = pick(row, ["username", "user", "email", "userid"]);
   const password = pick(row, ["password", "pwd", "pass"]);
-  const totpSecret = pick(row, [
-    "totpsecret",
-    "totp",
-    "mfasecret",
-    "authenticatorsecret",
-    "2fasecret",
-    "otpsecret",
-    "verificationsecret",
-  ]);
 
   const missing: string[] = [];
   if (!url) missing.push("URL");
@@ -88,10 +77,9 @@ export function loadSalesforceCredentials(
   if (missing.length > 0) {
     throw new Error(
       `Missing columns in first data row (${missing.join(", ")}). ` +
-        `Expected URL, Username, Password in: ${filePath}. ` +
-        `Add TOTP Secret (Base32) for MFA.`,
+        `Expected headers such as URL, Username, Password in: ${filePath}`,
     );
   }
 
-  return { url, username, password, totpSecret };
+  return { url, username, password };
 }
