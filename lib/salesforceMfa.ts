@@ -140,8 +140,11 @@ export async function fillSixDigitVerification(
 }
 
 /**
- * After clicking the main Log In button: waits for MFA challenge or home, generates a fresh TOTP,
- * fills the 6-digit verification UI, submits, then waits until the session leaves the login host.
+ * After clicking the main Log In button: waits for MFA challenge or home.
+ * When the verification screen appears, waits `SF_USER_VERIFICATION_WAIT_MS` (default 60s) so the
+ * user can type the 6-digit code manually; if login completes during that window, returns.
+ * Otherwise, if a TOTP secret is configured, fills the code automatically and submits.
+ * Without a TOTP secret, waits up to 3 minutes more for the user to finish manually.
  */
 export async function afterPasswordSubmit(
   page: Page,
