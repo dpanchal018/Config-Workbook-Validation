@@ -147,3 +147,4 @@ playwright/.cache/
 # Local credentials (never commit)
 credentials/salesforce-credentials.xlsx
 credentials/salesforce-credentials-updated.xlsx
+credentials/procurement-classification-expected.xlsx

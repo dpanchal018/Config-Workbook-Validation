@@ -1,6 +1,10 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { Locator, Page } from "@playwright/test";
+import {
+  denyGeolocationForCurrentOrigin,
+  dismissGeoLocationPopupIfPresent,
+} from "./geoLocationPopup";
 
 /** Wait until Salesforce is past login (Lightning / My Domain home or app shell). */
 export async function waitForSalesforceHome(
@@ -86,47 +90,111 @@ export async function captureLeadListViewScreenshot(
 
 /** Clicks the standard List View "New" action to start creating a Lead. */
 export async function clickNewLeadButton(page: Page): Promise<void> {
+  await denyGeolocationForCurrentOrigin(page);
+
   const listRegion = page
     .locator(".listViewManager, .slds-page-header, .oneContent")
     .first();
   const scoped = listRegion.getByRole("button", { name: /^New$/i }).first();
   if (await scoped.isVisible({ timeout: 5_000 }).catch(() => false)) {
     await scoped.click();
-    return;
+  } else {
+    const titleNew = page.locator('button[title="New"], a[title="New"]').first();
+    if (await titleNew.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await titleNew.click();
+    } else {
+      await page.getByRole("button", { name: /^New$/i }).first().click();
+    }
   }
 
-  const titleNew = page.locator('button[title="New"], a[title="New"]').first();
-  if (await titleNew.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await titleNew.click();
-    return;
-  }
+  await denyGeolocationForCurrentOrigin(page);
+  await dismissGeoLocationPopupIfPresent(page);
+}
 
-  await page.getByRole("button", { name: /^New$/i }).first().click();
+/**
+ * Geolocation permission modals often share `.slds-modal`; this avoids treating them as the Lead form.
+ * Lead copy may live in shadow DOM, so we also treat typical Lead field labels as "leadish".
+ */
+function modalInnerTextLooksGeoOnly(text: string): boolean {
+  const t = text.toLowerCase();
+  const geoish =
+    /geolocation|geo-?location|access to\s*geo|know your location|use your location|location permission|wants to know your location/.test(
+      t,
+    );
+  const leadish =
+    /\bnew\s+lead\b/.test(t) ||
+    /\blast name\b/.test(t) ||
+    /\bcompany\b/.test(t) ||
+    /procurement classification/.test(t);
+  return geoish && !leadish;
+}
+
+async function returnModalContainer(outer: Locator): Promise<Locator> {
+  const inner = outer.locator(".slds-modal__container").first();
+  if (await inner.isVisible().catch(() => false)) {
+    return inner;
+  }
+  return outer;
 }
 
 /**
  * Waits for the Lightning "New Lead" modal (SLDS modal or dialog role).
  * Returns the locator to screenshot (modal container).
+ *
+ * Note: requiring `hasText: /new lead/i` on the outer `.slds-modal` often fails because Lightning
+ * puts the title inside shadow roots — the modal is visible but that filter never matches. Prefer
+ * accessible name / heading / Lead-field heuristics, then the first open SLDS modal.
  */
 export async function waitForNewLeadModal(page: Page): Promise<Locator> {
   const deadline = Date.now() + 45_000;
   while (Date.now() < deadline) {
+    await dismissGeoLocationPopupIfPresent(page, 8_000);
+
+    const namedDialog = page
+      .getByRole("dialog", { name: /\bnew\s+lead\b/i })
+      .first();
+    if (await namedDialog.isVisible().catch(() => false)) {
+      return returnModalContainer(namedDialog);
+    }
+
+    const withHeading = page
+      .locator(".slds-modal.slds-fade-in-open")
+      .filter({ has: page.getByRole("heading", { name: /\bnew\s+lead\b/i }) })
+      .first();
+    if (await withHeading.isVisible().catch(() => false)) {
+      return returnModalContainer(withHeading);
+    }
+
+    const withLeadFields = page
+      .locator(".slds-modal.slds-fade-in-open")
+      .filter({
+        has: page
+          .getByLabel(/\blast name\b/i)
+          .or(page.getByLabel(/\bcompany\b/i))
+          .or(page.getByPlaceholder(/\blast name\b/i)),
+      })
+      .first();
+    if (await withLeadFields.isVisible().catch(() => false)) {
+      return returnModalContainer(withLeadFields);
+    }
+
     const outer = page.locator(".slds-modal.slds-fade-in-open").first();
     if (await outer.isVisible().catch(() => false)) {
-      const inner = outer.locator(".slds-modal__container").first();
-      if (await inner.isVisible().catch(() => false)) {
-        return inner;
+      const blob = await outer.innerText().catch(() => "");
+      if (modalInnerTextLooksGeoOnly(blob)) {
+        await dismissGeoLocationPopupIfPresent(page, 4_000);
+        await page.waitForTimeout(250);
+        continue;
       }
-      return outer;
+      return returnModalContainer(outer);
     }
 
     const dialog = page.getByRole("dialog").first();
     if (await dialog.isVisible().catch(() => false)) {
-      const inner = dialog.locator(".slds-modal__container").first();
-      if (await inner.isVisible().catch(() => false)) {
-        return inner;
+      const blob = await dialog.innerText().catch(() => "");
+      if (!modalInnerTextLooksGeoOnly(blob)) {
+        return returnModalContainer(dialog);
       }
-      return dialog;
     }
 
     await page.waitForTimeout(250);

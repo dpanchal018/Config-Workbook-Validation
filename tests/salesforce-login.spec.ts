@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
+import { registerGeoLocationAutoDismiss } from "../lib/geoLocationPopup";
 import { loadSalesforceCredentials } from "../lib/loadCredentials";
+import { runProcurementClassificationPart1 } from "../lib/procurementClassificationPart1";
 import { stepPassed } from "../lib/stepStatus";
 import {
   captureLeadListViewScreenshot,
@@ -14,10 +16,11 @@ import {
   waitForSalesforceHome,
 } from "../lib/salesforceNavigation";
 
-test("Salesforce login, Leads, New Lead modal, Procurement Classification section", async ({
+test("Salesforce login through Procurement Classification — Part 1", async ({
   page,
 }, testInfo) => {
   const creds = loadSalesforceCredentials();
+  await registerGeoLocationAutoDismiss(page);
 
   await test.step("Login", async () => {
     await page.goto(creds.url, { waitUntil: "domcontentloaded" });
@@ -86,5 +89,12 @@ test("Salesforce login, Leads, New Lead modal, Procurement Classification sectio
       contentType: "image/png",
     });
     stepPassed("Procurement Classification section");
+  });
+
+  await test.step("Procurement Classification — Part 1", async () => {
+    const modal = await waitForNewLeadModal(page);
+    const section = await procurementClassificationSection(modal);
+    await runProcurementClassificationPart1(page, section);
+    stepPassed("Procurement Classification — Part 1");
   });
 });

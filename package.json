@@ -8,6 +8,7 @@
     "test:headed": "playwright test --headed",
     "report": "playwright show-report",
     "init:credentials": "node scripts/create-credentials-template.cjs",
+    "init:procurement-expected": "node scripts/create-procurement-expected-template.cjs",
     "auto-commit:watch": "node scripts/auto-commit-watch.cjs",
     "credentials:set-password": "node scripts/set-salesforce-password.cjs"
   },
@@ -17,6 +18,7 @@
   "description": "",
   "devDependencies": {
     "@playwright/test": "^1.59.1",
+    "@types/node": "^22.15.0",
     "chokidar": "^5.0.0"
   },
   "dependencies": {
