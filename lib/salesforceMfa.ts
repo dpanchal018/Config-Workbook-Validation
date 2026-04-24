@@ -169,7 +169,6 @@ export async function afterPasswordSubmit(
               /salesforce\.com/i.test(u))
           );
         },
-        undefined,
         { timeout: 120_000 },
       );
       return;
