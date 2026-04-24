@@ -26,15 +26,36 @@ export async function waitForSalesforceHome(
   await page.waitForLoadState("domcontentloaded");
 }
 
-/** Standard Lightning Lead object list view for the current org. */
+/**
+ * Standard Lightning Lead list URL. Maps *.my.salesforce.com → *.lightning.force.com
+ * because list views are usually served from the Lightning host.
+ */
 export function leadListViewUrl(pageUrl: string): string {
   const u = new URL(pageUrl);
-  return `${u.origin}/lightning/o/Lead/list`;
+  let { hostname, protocol } = u;
+  const h = hostname.toLowerCase();
+
+  if (h.endsWith(".sandbox.my.salesforce.com")) {
+    hostname = hostname.replace(
+      /\.sandbox\.my\.salesforce\.com$/i,
+      ".sandbox.lightning.force.com",
+    );
+  } else if (h.endsWith(".my.salesforce.com")) {
+    hostname = hostname.replace(
+      /\.my\.salesforce\.com$/i,
+      ".lightning.force.com",
+    );
+  }
+
+  return `${protocol}//${hostname}/lightning/o/Lead/list`;
 }
 
 export async function navigateToLeadList(page: Page): Promise<void> {
   const target = leadListViewUrl(page.url());
-  await page.goto(target, { waitUntil: "domcontentloaded" });
+  await page.goto(target, {
+    waitUntil: "domcontentloaded",
+    timeout: 60_000,
+  });
 }
 
 /** Milliseconds to wait on Home after it loads (settle UI / One.app). */
