@@ -49,30 +49,48 @@ wb.Sheets[sn] = XLSX.utils.aoa_to_sheet(aoa);
 
 const dir = path.dirname(fp);
 const tmp = path.join(dir, `.salesforce-credentials.${process.pid}.tmp.xlsx`);
-try {
+const fallback = path.join(dir, "salesforce-credentials-updated.xlsx");
+
+function tryWriteTarget() {
   try {
     XLSX.writeFile(wb, fp);
+    return true;
   } catch {
-    XLSX.writeFile(wb, tmp);
     try {
-      fs.renameSync(tmp, fp);
+      XLSX.writeFile(wb, tmp);
+      try {
+        fs.renameSync(tmp, fp);
+      } catch {
+        fs.copyFileSync(tmp, fp);
+        fs.unlinkSync(tmp);
+      }
+      return true;
     } catch {
-      fs.copyFileSync(tmp, fp);
-      fs.unlinkSync(tmp);
+      try {
+        if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+      } catch {
+        /* ignore */
+      }
+      return false;
     }
   }
-} catch (e) {
-  try {
-    if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
-  } catch {
-    /* ignore */
-  }
-  console.error(e.message);
-  console.error(
-    "\nClose Excel and any preview of the workbook, then run this script again.",
-    "If the project is under OneDrive, try again after sync finishes or move the file out briefly.",
+}
+
+if (!tryWriteTarget()) {
+  XLSX.writeFile(wb, fallback);
+  console.log("Original file is locked. Wrote workbook with new password to:");
+  console.log(fallback);
+  console.log(
+    "When nothing has the file open, delete or rename the old salesforce-credentials.xlsx,",
+    "then rename salesforce-credentials-updated.xlsx to salesforce-credentials.xlsx.",
   );
-  process.exit(1);
+  process.exit(0);
+}
+
+try {
+  if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+} catch {
+  /* ignore */
 }
 
 console.log("Updated Password in", fp);
