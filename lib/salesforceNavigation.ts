@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 /** Wait until Salesforce is past login (Lightning / My Domain home or app shell). */
 export async function waitForSalesforceHome(
@@ -81,5 +81,54 @@ export async function captureLeadListViewScreenshot(
   fs.mkdirSync(outDir, { recursive: true });
   const filePath = path.join(outDir, fileName);
   await page.screenshot({ path: filePath, fullPage: true });
+  return filePath;
+}
+
+/** Clicks the standard List View "New" action to start creating a Lead. */
+export async function clickNewLeadButton(page: Page): Promise<void> {
+  const listRegion = page
+    .locator(".listViewManager, .slds-page-header, .oneContent")
+    .first();
+  const scoped = listRegion.getByRole("button", { name: /^New$/i }).first();
+  if (await scoped.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    await scoped.click();
+    return;
+  }
+
+  const titleNew = page.locator('button[title="New"], a[title="New"]').first();
+  if (await titleNew.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    await titleNew.click();
+    return;
+  }
+
+  await page.getByRole("button", { name: /^New$/i }).first().click();
+}
+
+/**
+ * Waits for the Lightning "New Lead" modal (SLDS modal or dialog role).
+ * Returns the locator to screenshot (modal container).
+ */
+export async function waitForNewLeadModal(page: Page): Promise<Locator> {
+  const outer = page.locator(".slds-modal.slds-fade-in-open").first();
+  await outer.waitFor({ state: "visible", timeout: 45_000 });
+  const inner = outer.locator(".slds-modal__container").first();
+  if (await inner.isVisible().catch(() => false)) {
+    return inner;
+  }
+
+  const dialog = page.getByRole("dialog").first();
+  await dialog.waitFor({ state: "visible", timeout: 10_000 });
+  return dialog;
+}
+
+/** Saves a screenshot of the New Lead modal under test-results/. */
+export async function captureNewLeadModalScreenshot(
+  modal: Locator,
+  fileName = "new-lead-modal.png",
+): Promise<string> {
+  const outDir = path.join(process.cwd(), "test-results");
+  fs.mkdirSync(outDir, { recursive: true });
+  const filePath = path.join(outDir, fileName);
+  await modal.screenshot({ path: filePath });
   return filePath;
 }
