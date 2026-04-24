@@ -6,10 +6,21 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: 1,
-  reporter: "html",
+  reporter: [
+    ["list"],
+    [
+      "html",
+      {
+        outputFolder: "playwright-report",
+        open: "never",
+      },
+    ],
+  ],
   use: {
-    trace: "on-first-retry",
     headless: !!process.env.CI,
+    trace: "on",
+    video: "on",
+    screenshot: "on",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });

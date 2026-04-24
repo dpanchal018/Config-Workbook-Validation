@@ -7,14 +7,16 @@
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "report": "playwright show-report",
-    "init:credentials": "node scripts/create-credentials-template.cjs"
+    "init:credentials": "node scripts/create-credentials-template.cjs",
+    "auto-commit:watch": "node scripts/auto-commit-watch.cjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "devDependencies": {
-    "@playwright/test": "^1.59.1"
+    "@playwright/test": "^1.59.1",
+    "chokidar": "^5.0.0"
   },
   "dependencies": {
     "xlsx": "^0.18.5"
