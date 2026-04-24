@@ -6,7 +6,7 @@ export type SalesforceCredentials = {
   url: string;
   username: string;
   password: string;
-  /** Base32 secret from Salesforce Authenticator (or compatible app) setup — used to derive the 6-digit code. */
+  /** Base32 secret from Salesforce Authenticator setup; empty if not in the sheet yet. */
   totpSecret: string;
 };
 
@@ -85,11 +85,11 @@ export function loadSalesforceCredentials(
   if (!url) missing.push("URL");
   if (!username) missing.push("Username");
   if (!password) missing.push("Password");
-  if (!totpSecret) missing.push("TOTP Secret");
   if (missing.length > 0) {
     throw new Error(
       `Missing columns in first data row (${missing.join(", ")}). ` +
-        `Expected URL, Username, Password, TOTP Secret (Base32) in: ${filePath}`,
+        `Expected URL, Username, Password in: ${filePath}. ` +
+        `Add TOTP Secret (Base32) for MFA.`,
     );
   }
 
