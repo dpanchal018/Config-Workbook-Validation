@@ -11,8 +11,6 @@ import {
 test("Salesforce login, open Leads list, capture screenshot", async ({
   page,
 }, testInfo) => {
-  test.setTimeout(180_000);
-
   const creds = loadSalesforceCredentials();
 
   await page.goto(creds.url, { waitUntil: "domcontentloaded" });
