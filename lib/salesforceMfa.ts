@@ -37,6 +37,34 @@ async function loginErrorText(page: Page): Promise<string | null> {
   return null;
 }
 
+/** Milliseconds to let the user manually type the 6-digit code after the verification screen appears. */
+function userVerificationGraceMs(): number {
+  const raw = process.env.SF_USER_VERIFICATION_WAIT_MS;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : 60_000;
+}
+
+/**
+ * Gives the user time to enter the code and click Verify. Returns true if login already completed.
+ */
+async function waitWhileUserCanEnterCode(
+  page: Page,
+  maxMs: number,
+): Promise<boolean> {
+  const end = Date.now() + maxMs;
+  while (Date.now() < end) {
+    if (await sessionLooksEstablished(page)) {
+      return true;
+    }
+    const err = await loginErrorText(page);
+    if (err) {
+      throw new Error(err);
+    }
+    await page.waitForTimeout(500);
+  }
+  return await sessionLooksEstablished(page);
+}
+
 /**
  * Fills the 6-digit verification field (single input or six boxes) and submits when possible.
  */
@@ -119,7 +147,7 @@ export async function afterPasswordSubmit(
   page: Page,
   totpSecret: string,
 ): Promise<void> {
-  const deadline = Date.now() + 120_000;
+  const deadline = Date.now() + 300_000;
 
   while (Date.now() < deadline) {
     const err = await loginErrorText(page);
