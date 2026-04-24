@@ -8,7 +8,8 @@
     "test:headed": "playwright test --headed",
     "report": "playwright show-report",
     "init:credentials": "node scripts/create-credentials-template.cjs",
-    "auto-commit:watch": "node scripts/auto-commit-watch.cjs"
+    "auto-commit:watch": "node scripts/auto-commit-watch.cjs",
+    "credentials:set-password": "node scripts/set-salesforce-password.cjs"
   },
   "keywords": [],
   "author": "",
