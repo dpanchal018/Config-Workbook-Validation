@@ -100,7 +100,7 @@ export async function clickPicklistOptionInOpenList(
   let clicked = false;
   for (let i = 0; i < n; i++) {
     const opt = options.nth(i);
-    const raw = (await opt.innerText()).catch(() => "");
+    const raw = await opt.innerText().catch(() => "");
     if (optionTextMatchesCell(raw, optionLabel)) {
       await opt.scrollIntoViewIfNeeded();
       await opt.click();
@@ -187,7 +187,7 @@ export async function readPicklistDisplayedValue(
     (await inp.getAttribute("title").catch(() => ""));
   if (v?.trim()) return v.trim();
 
-  const raw = (await combo.innerText()).catch(() => "");
+  const raw = await combo.innerText().catch(() => "");
   return raw.replace(/\s+/g, " ").trim();
 }
 
