@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 
 /** Matches browser / in-app copy for geolocation permission prompts (not generic "Location" fields). */
 const GEO_TEXT =
-  /access to\s+geo|geolocation|know your location|use your location|wants to know your location|location permission|allow.*location|block.*location/i;
+  /access to\s+geo|geolocation|geo\s*-?\s*location|know your location|use your location|wants to know your location|location permission|allow.*location|block.*location|location services/i;
 
 const pagesWithGeoHandler = new WeakSet<Page>();
 
