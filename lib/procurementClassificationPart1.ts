@@ -5,16 +5,52 @@ import {
   clickPicklistOptionInOpenList,
   expectPicklistShowsValue,
   openPicklistDropdown,
+  picklistOptionMatchKey,
   readOpenPicklistOptions,
   readPicklistDisplayedValue,
 } from "./salesforceProcurementPicklists";
+import {
+  isProcurementTestVerbose,
+  PROCUREMENT_TEST_VERBOSE_ENV,
+} from "./procurementTestLog";
+
+export { PROCUREMENT_TEST_VERBOSE_ENV };
+
+function part1DetailLog(...args: Parameters<typeof console.log>): void {
+  if (isProcurementTestVerbose()) console.log(...args);
+}
+
+function part1DetailWarn(...args: Parameters<typeof console.warn>): void {
+  if (isProcurementTestVerbose()) console.warn(...args);
+}
 
 /** Fixed values for Part 1 (per business flow). */
 export const PART1_VALUES = {
   procurementSector: "Public",
   procurementChannel: "NUPCO",
+  /** Request Type: first value, then same picklist reopened for Tender, then reopened again for Direct Purchase. */
   requestType: "Marketplace",
+  requestTypeTender: "Tender",
+  requestTypeFinal: "Direct Purchase",
+  /** First Procurement Channel change in phase 2 (reopen channel after Direct Purchase; Etimad is a channel value only). */
+  part2ProcurementChannel: "Etimad",
+  part3ProcurementChannel: "Non-NUPCO",
+  /** Request Type when Procurement Channel = Non-NUPCO (first selection on that dependent picklist). */
+  part3RequestType: "Tender",
+  /** Re-open Request Type after Tender (still Non-NUPCO) and select KFSH. */
+  part3RequestTypeKfsh: "KFSH",
 } as const;
+
+/**
+ * Legacy env name (no longer required): continuation after Direct Purchase runs by default.
+ * Kept so existing docs/scripts that reference this constant still resolve.
+ */
+export const PART1_CONTINUE_AFTER_CHANNEL_ETIMAD_ENV =
+  "SF_PART1_CONTINUE_AFTER_CHANNEL_ETIMAD" as const;
+
+/** When set to `1`, Part 1 stops after Request Type = Direct Purchase (skips channel Etimad → Non-NUPCO and later steps). */
+export const PART1_SKIP_CHANNEL_ETIMAD_CONTINUATION_ENV =
+  "SF_PART1_SKIP_CHANNEL_ETIMAD_CONTINUATION" as const;
 
 function escapeHtml(s: string): string {
   return s
@@ -24,11 +60,88 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** Status for each matrix row in {@link logPart1ProcurementClassificationMatrix}. */
+export type Part1ProcurementClassificationMatrixStatus =
+  | "Pass"
+  | "Fail"
+  | "Skip";
+
+export type Part1ProcurementClassificationMatrixRow = {
+  "Procurement Sector": string;
+  "Procurement Channel": string;
+  "Request Type": string;
+  Status: Part1ProcurementClassificationMatrixStatus;
+};
+
+/**
+ * Rows for the spreadsheet-style checklist (Public + each channel/request-type pair Part 1 covers).
+ * When `fullContinuation` is false (stopped after NUPCO Direct Purchase), Etimad / Non-NUPCO rows are **Skip**.
+ */
+export function getPart1ProcurementClassificationMatrixRows(
+  fullContinuation: boolean,
+): Part1ProcurementClassificationMatrixRow[] {
+  const v = PART1_VALUES;
+  const sector = v.procurementSector;
+  const definitions: Omit<
+    Part1ProcurementClassificationMatrixRow,
+    "Status"
+  >[] = [
+    {
+      "Procurement Sector": sector,
+      "Procurement Channel": v.procurementChannel,
+      "Request Type": v.requestType,
+    },
+    {
+      "Procurement Sector": sector,
+      "Procurement Channel": v.procurementChannel,
+      "Request Type": v.requestTypeTender,
+    },
+    {
+      "Procurement Sector": sector,
+      "Procurement Channel": v.procurementChannel,
+      "Request Type": v.requestTypeFinal,
+    },
+    {
+      "Procurement Sector": sector,
+      "Procurement Channel": v.part2ProcurementChannel,
+      "Request Type": v.requestTypeFinal,
+    },
+    {
+      "Procurement Sector": sector,
+      "Procurement Channel": v.part3ProcurementChannel,
+      "Request Type": v.part3RequestType,
+    },
+    {
+      "Procurement Sector": sector,
+      "Procurement Channel": v.part3ProcurementChannel,
+      "Request Type": v.part3RequestTypeKfsh,
+    },
+  ];
+
+  return definitions.map((row, index) => ({
+    ...row,
+    Status: fullContinuation
+      ? "Pass"
+      : index < 3
+        ? "Pass"
+        : "Skip",
+  }));
+}
+
+/** Prints the Part 1 matrix (Pass / Skip) to the terminal — the default summary when verbose logging is off. */
+export function logPart1ProcurementClassificationMatrix(
+  fullContinuation: boolean,
+): void {
+  const rows = getPart1ProcurementClassificationMatrixRows(fullContinuation);
+  console.table(rows);
+}
+
 /** Prints picklist values as a numbered table in the terminal. */
 export function logPicklistValuesTable(title: string, options: string[]): void {
-  console.log(`\n${"─".repeat(72)}`);
-  console.log(title);
-  console.log("─".repeat(72));
+  if (!isProcurementTestVerbose()) return;
+  part1DetailLog(`\n${"─".repeat(72)}`);
+  part1DetailLog(title);
+  part1DetailLog("─".repeat(72));
   console.table(options.map((value, idx) => ({ "#": idx + 1, Value: value })));
 }
 
@@ -38,6 +151,7 @@ export async function showPicklistValuesTableOnPage(
   title: string,
   options: string[],
 ): Promise<void> {
+  if (!isProcurementTestVerbose()) return;
   const rows = options
     .map(
       (v, i) =>
@@ -103,6 +217,64 @@ export function validateRequestTypePicklistForNupco(
   ).toBeTruthy();
 }
 
+export function validateRequestTypePicklistIncludesTender(
+  options: string[],
+): void {
+  expect(
+    options.some((o) => /^tender$/i.test(o.trim())),
+    `Request Type picklist should include Tender. Values: ${JSON.stringify(options)}`,
+  ).toBeTruthy();
+}
+
+export function validateRequestTypePicklistIncludesKfsh(
+  options: string[],
+): void {
+  expect(
+    options.some((o) => /^kfsh$/i.test(o.trim())),
+    `Request Type picklist (Non-NUPCO, after Tender) should include KFSH. Values: ${JSON.stringify(options)}`,
+  ).toBeTruthy();
+}
+
+export function validateProcurementChannelPicklistIncludesEtimad(
+  options: string[],
+): void {
+  expect(
+    options.some((o) => /^etimad$/i.test(o.trim())),
+    `Procurement Channel picklist should include Etimad (Public is a Sector value, not Channel). Values: ${JSON.stringify(options)}`,
+  ).toBeTruthy();
+}
+
+export function validateProcurementChannelPicklistIncludesNonNupco(
+  options: string[],
+): void {
+  const wantKey = picklistOptionMatchKey(PART1_VALUES.part3ProcurementChannel);
+  expect(
+    options.some((o) => picklistOptionMatchKey(o) === wantKey),
+    `Procurement Channel picklist should include Non-NUPCO (hyphen/space variants). Values: ${JSON.stringify(options)}`,
+  ).toBeTruthy();
+}
+
+export function validateProcurementSectorPicklistIncludesEtimad(
+  options: string[],
+): void {
+  expect(
+    options.some((o) => /^etimad$/i.test(o.trim())),
+    `Procurement Sector picklist should include Etimad. Values: ${JSON.stringify(options)}`,
+  ).toBeTruthy();
+}
+
+export function validateRequestTypePicklistIncludesDirectPurchase(
+  options: string[],
+): void {
+  expect(
+    options.some((o) => {
+      const n = o.trim().replace(/\s+/g, " ").toLowerCase();
+      return n === "direct purchase";
+    }),
+    `Request Type picklist should include Direct Purchase (reopen after Tender). Values: ${JSON.stringify(options)}`,
+  ).toBeTruthy();
+}
+
 /**
  * Part 1 only works when Procurement Sector is Public. Verifies the field shows Public;
  * if not, re-opens the picklist and selects Public again (limited retries), then fails with a clear error.
@@ -117,7 +289,7 @@ export async function ensureProcurementSectorIsPublic(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       await expectPicklistShowsValue(section, "Procurement Sector", label);
-      console.log(
+      part1DetailLog(
         `[Part 1] Confirmed Procurement Sector is "${label}" — downstream steps can run.`,
       );
       return;
@@ -126,7 +298,7 @@ export async function ensureProcurementSectorIsPublic(
         section,
         "Procurement Sector",
       ).catch(() => "(unreadable)");
-      console.warn(
+      part1DetailWarn(
         `[Part 1] Procurement Sector is not "${label}" yet (shows "${raw}"). ` +
           `Re-opening picklist and selecting "${label}" (attempt ${attempt + 2}/${maxAttempts}).`,
       );
@@ -136,25 +308,99 @@ export async function ensureProcurementSectorIsPublic(
             `If the option row uses custom HTML/CSS, share that markup so we can add a locator.`,
         );
       }
-      await openPicklistDropdown(page, section, "Procurement Sector");
-      await clickPicklistOptionInOpenList(page, label);
+      const sectorListbox = await openPicklistDropdown(
+        page,
+        section,
+        "Procurement Sector",
+      );
+      await clickPicklistOptionInOpenList(sectorListbox, label);
     }
   }
 }
 
 /**
- * Part 1 only: Procurement Sector → Public; Channel → NUPCO; Request Type → Marketplace,
- * with picklist value tables on terminal and UI after each open.
+ * Escape would close the whole New Lead SLDS modal when no picklist listbox is focused.
+ * Only send Escape if a listbox is actually open (stuck overlay from a prior dropdown).
+ */
+async function dismissOpenListboxIfVisible(page: Page): Promise<void> {
+  const lb = page.locator('[role="listbox"]').first();
+  if (await lb.isVisible().catch(() => false)) {
+    await page.keyboard.press("Escape");
+    await lb.waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
+    await page.waitForTimeout(300);
+  } else {
+    await page.waitForTimeout(200);
+  }
+}
+
+/**
+ * Opens Procurement Channel, validates options, then selects the value with retries
+ * (Etimad / Non-NUPCO). Does not press Escape unless a listbox is open — avoids closing the modal.
+ */
+async function selectProcurementChannelOptionWithRetry(
+  page: Page,
+  section: Locator,
+  optionLabel: string,
+  validateOptions: (options: string[]) => void,
+  logTableTitle: string,
+  showPageTitle: string,
+): Promise<void> {
+  await dismissOpenListboxIfVisible(page);
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (attempt > 0) {
+        await dismissOpenListboxIfVisible(page);
+        await page.waitForTimeout(150);
+      }
+      const listbox = await openPicklistDropdown(page, section, "Procurement Channel");
+      await page.waitForTimeout(250);
+      const opts = await readOpenPicklistOptions(listbox);
+      validateOptions(opts);
+      if (attempt === 0) {
+        logPicklistValuesTable(logTableTitle, opts);
+        await showPicklistValuesTableOnPage(page, showPageTitle, opts);
+      }
+      await clickPicklistOptionInOpenList(listbox, optionLabel);
+      await expectPicklistShowsValue(section, "Procurement Channel", optionLabel);
+      return;
+    } catch (e) {
+      if (attempt === 2) throw e;
+      part1DetailWarn(
+        `[Part 1] Procurement Channel → "${optionLabel}" attempt ${attempt + 1}/3 failed; retrying.`,
+      );
+    }
+  }
+}
+
+/**
+ * Part 1: Procurement Sector → Public; Channel → NUPCO; Request Type → Marketplace → Tender → Direct Purchase,
+ * then by default continues with Procurement Channel → **Etimad** → **Non-NUPCO**,
+ * keeps **Procurement Sector** = Public, then Request Type → Tender → reopen → **KFSH** for Non-NUPCO (see {@link continueProcurementClassificationPart1AfterChannelEtimad}).
+ * Set {@link PART1_SKIP_CHANNEL_ETIMAD_CONTINUATION_ENV}=`1` to stop after Direct Purchase only.
+ *
+ * Terminal output is quiet by default (only the final Pass/Skip matrix). Set
+ * {@link PROCUREMENT_TEST_VERBOSE_ENV}=`1` for step logs, picklist tables, and on-page overlays.
  */
 export async function runProcurementClassificationPart1(
   page: Page,
   section: Locator,
 ): Promise<void> {
-  const { procurementSector, procurementChannel, requestType } = PART1_VALUES;
+  const {
+    procurementSector,
+    procurementChannel,
+    requestType,
+    requestTypeTender,
+    requestTypeFinal,
+  } = PART1_VALUES;
 
-  console.log("\n[Part 1] Steps 1–2: Open Procurement Sector and capture picklist values");
-  await openPicklistDropdown(page, section, "Procurement Sector");
-  const sectorOptions = await readOpenPicklistOptions(page);
+  part1DetailLog("\n[Part 1] Steps 1–2: Open Procurement Sector and capture picklist values");
+  const sectorListbox = await openPicklistDropdown(
+    page,
+    section,
+    "Procurement Sector",
+  );
+  const sectorOptions = await readOpenPicklistOptions(sectorListbox);
   validateProcurementSectorPicklist(sectorOptions);
   logPicklistValuesTable("Procurement Sector — picklist values", sectorOptions);
   await showPicklistValuesTableOnPage(
@@ -163,22 +409,26 @@ export async function runProcurementClassificationPart1(
     sectorOptions,
   );
 
-  console.log("[Part 1] Step 3: Select Public on Procurement Sector");
-  await clickPicklistOptionInOpenList(page, procurementSector);
+  part1DetailLog("[Part 1] Step 3: Select Public on Procurement Sector");
+  await clickPicklistOptionInOpenList(sectorListbox, procurementSector);
   await ensureProcurementSectorIsPublic(page, section);
 
-  console.log("[Part 1] Step 4: Verify Procurement Channel is enabled");
+  part1DetailLog("[Part 1] Step 4: Verify Procurement Channel is enabled");
   await assertPicklistEnabledAfterDependency(
     section,
     "Procurement Channel",
     `after Procurement Sector = "${procurementSector}"`,
   );
 
-  console.log(
+  part1DetailLog(
     "[Part 1] Steps 5–6: Open Procurement Channel, show values for Sector=Public, select NUPCO",
   );
-  await openPicklistDropdown(page, section, "Procurement Channel");
-  const channelOptions = await readOpenPicklistOptions(page);
+  const channelListbox = await openPicklistDropdown(
+    page,
+    section,
+    "Procurement Channel",
+  );
+  const channelOptions = await readOpenPicklistOptions(channelListbox);
   validateProcurementChannelPicklistForPublic(channelOptions);
   logPicklistValuesTable(
     `Procurement Channel — picklist values (Procurement Sector = "${procurementSector}")`,
@@ -189,9 +439,9 @@ export async function runProcurementClassificationPart1(
     `Procurement Channel (Procurement Sector = ${procurementSector})`,
     channelOptions,
   );
-  await clickPicklistOptionInOpenList(page, procurementChannel);
+  await clickPicklistOptionInOpenList(channelListbox, procurementChannel);
 
-  console.log(
+  part1DetailLog(
     "[Part 1] Step 7: Verify Request Type is enabled after NUPCO on Procurement Channel",
   );
   await assertPicklistEnabledAfterDependency(
@@ -200,11 +450,15 @@ export async function runProcurementClassificationPart1(
     `after Procurement Channel = "${procurementChannel}"`,
   );
 
-  console.log(
+  part1DetailLog(
     "[Part 1] Steps 8–9: Open Request Type, show values for Channel=NUPCO, select Marketplace",
   );
-  await openPicklistDropdown(page, section, "Request Type");
-  const requestTypeOptions = await readOpenPicklistOptions(page);
+  const requestTypeListbox = await openPicklistDropdown(
+    page,
+    section,
+    "Request Type",
+  );
+  const requestTypeOptions = await readOpenPicklistOptions(requestTypeListbox);
   validateRequestTypePicklistForNupco(requestTypeOptions);
   logPicklistValuesTable(
     `Request Type — picklist values (Procurement Channel = "${procurementChannel}")`,
@@ -215,9 +469,220 @@ export async function runProcurementClassificationPart1(
     `Request Type (Procurement Channel = ${procurementChannel})`,
     requestTypeOptions,
   );
-  await clickPicklistOptionInOpenList(page, requestType);
+  await clickPicklistOptionInOpenList(requestTypeListbox, requestType);
+  await expectPicklistShowsValue(section, "Request Type", requestType);
 
-  console.log(
-    `\n[Part 1] Finished: Procurement Sector="${procurementSector}", Procurement Channel="${procurementChannel}", Request Type="${requestType}"\n`,
+  part1DetailLog(
+    `[Part 1] Steps 10–11: Re-open Request Type and select "${requestTypeTender}"`,
+  );
+  const requestTypeListboxTender = await openPicklistDropdown(
+    page,
+    section,
+    "Request Type",
+  );
+  const requestTypeOptionsTender =
+    await readOpenPicklistOptions(requestTypeListboxTender);
+  validateRequestTypePicklistIncludesTender(requestTypeOptionsTender);
+  logPicklistValuesTable(
+    `Request Type — picklist values (after "${requestType}", before "${requestTypeTender}")`,
+    requestTypeOptionsTender,
+  );
+  await showPicklistValuesTableOnPage(
+    page,
+    `Request Type — reopen 1 (${requestType} → ${requestTypeTender})`,
+    requestTypeOptionsTender,
+  );
+  await clickPicklistOptionInOpenList(
+    requestTypeListboxTender,
+    requestTypeTender,
+  );
+  await expectPicklistShowsValue(section, "Request Type", requestTypeTender);
+
+  part1DetailLog(
+    `[Part 1] Steps 12–13: Re-open Request Type and select "${requestTypeFinal}"`,
+  );
+  const requestTypeListboxDirect = await openPicklistDropdown(
+    page,
+    section,
+    "Request Type",
+  );
+  const requestTypeOptionsDirect =
+    await readOpenPicklistOptions(requestTypeListboxDirect);
+  validateRequestTypePicklistIncludesDirectPurchase(requestTypeOptionsDirect);
+  logPicklistValuesTable(
+    `Request Type — picklist values (after "${requestTypeTender}", before "${requestTypeFinal}")`,
+    requestTypeOptionsDirect,
+  );
+  await showPicklistValuesTableOnPage(
+    page,
+    `Request Type — reopen 2 (${requestTypeTender} → ${requestTypeFinal})`,
+    requestTypeOptionsDirect,
+  );
+  await clickPicklistOptionInOpenList(
+    requestTypeListboxDirect,
+    requestTypeFinal,
+  );
+  await expectPicklistShowsValue(section, "Request Type", requestTypeFinal);
+
+  if (
+    process.env[PART1_SKIP_CHANNEL_ETIMAD_CONTINUATION_ENV]?.trim() === "1"
+  ) {
+    part1DetailLog(
+      `\n[Part 1] Stopped after Request Type="${requestTypeFinal}" (${PART1_SKIP_CHANNEL_ETIMAD_CONTINUATION_ENV}=1).\n`,
+    );
+    logPart1ProcurementClassificationMatrix(false);
+    return;
+  }
+
+  await continueProcurementClassificationPart1AfterChannelEtimad(page, section);
+}
+
+/**
+ * After Request Type = Direct Purchase (with Channel still NUPCO): reopen **Procurement Channel** → **Etimad**,
+ * then **Non-NUPCO**; sector stays **Public**; then **Request Type** → `part3RequestType` (Tender), reopen, → `part3RequestTypeKfsh` (KFSH).
+ * Invoked automatically from {@link runProcurementClassificationPart1} unless the skip env is set.
+ */
+export async function continueProcurementClassificationPart1AfterChannelEtimad(
+  page: Page,
+  section: Locator,
+): Promise<void> {
+  const {
+    procurementChannel,
+    procurementSector,
+    requestTypeFinal,
+    part2ProcurementChannel,
+    part3ProcurementChannel,
+    part3RequestType,
+    part3RequestTypeKfsh,
+  } = PART1_VALUES;
+
+  part1DetailLog(
+    `[Part 1] Continuation — Step 17: Expect Request Type = "${requestTypeFinal}" and Procurement Channel = "${procurementChannel}"`,
+  );
+  await expectPicklistShowsValue(section, "Request Type", requestTypeFinal);
+  await expectPicklistShowsValue(section, "Procurement Channel", procurementChannel);
+
+  part1DetailLog(
+    `[Part 1] Continuation — Step 18: Verify Procurement Channel after Request Type = "${requestTypeFinal}"`,
+  );
+  await assertPicklistEnabledAfterDependency(
+    section,
+    "Procurement Channel",
+    `after Request Type = "${requestTypeFinal}"`,
+  );
+
+  part1DetailLog(
+    `[Part 1] Continuation — Steps 19–20: Procurement Channel → ${part2ProcurementChannel}`,
+  );
+  await selectProcurementChannelOptionWithRetry(
+    page,
+    section,
+    part2ProcurementChannel,
+    validateProcurementChannelPicklistIncludesEtimad,
+    `Procurement Channel — continuation (after Request Type = "${requestTypeFinal}")`,
+    `Procurement Channel — continuation → ${part2ProcurementChannel}`,
+  );
+
+  part1DetailLog(
+    `[Part 1] Continuation — Steps 21–22: Re-open Procurement Channel → ${part3ProcurementChannel}`,
+  );
+  await selectProcurementChannelOptionWithRetry(
+    page,
+    section,
+    part3ProcurementChannel,
+    validateProcurementChannelPicklistIncludesNonNupco,
+    `Procurement Channel — after "${part2ProcurementChannel}", select "${part3ProcurementChannel}"`,
+    `Procurement Channel — ${part2ProcurementChannel} → ${part3ProcurementChannel}`,
+  );
+
+  part1DetailLog(
+    `[Part 1] Continuation — Step 23: Verify Procurement Sector after Procurement Channel = "${part3ProcurementChannel}"`,
+  );
+  await assertPicklistEnabledAfterDependency(
+    section,
+    "Procurement Sector",
+    `after Procurement Channel = "${part3ProcurementChannel}"`,
+  );
+
+  part1DetailLog(
+    `[Part 1] Continuation — Steps 24–25: Confirm Procurement Sector stays "${procurementSector}" (Etimad applies to Procurement Channel only)`,
+  );
+  await ensureProcurementSectorIsPublic(page, section);
+
+  part1DetailLog(
+    `[Part 1] Continuation — Step 26: Verify Request Type after Procurement Channel = "${part3ProcurementChannel}"`,
+  );
+  await assertPicklistEnabledAfterDependency(
+    section,
+    "Request Type",
+    `after Procurement Channel = "${part3ProcurementChannel}" (Procurement Sector = "${procurementSector}")`,
+  );
+
+  part1DetailLog(
+    `[Part 1] Continuation — Steps 27–28: Request Type → ${part3RequestType} (Procurement Channel = "${part3ProcurementChannel}"; no Direct Purchase on this picklist)`,
+  );
+  const nonNupcoRequestTypeListbox = await openPicklistDropdown(
+    page,
+    section,
+    "Request Type",
+  );
+  const nonNupcoRequestTypeOptions = await readOpenPicklistOptions(
+    nonNupcoRequestTypeListbox,
+  );
+  validateRequestTypePicklistIncludesTender(nonNupcoRequestTypeOptions);
+  logPicklistValuesTable(
+    `Request Type — after Procurement Channel = "${part3ProcurementChannel}" (Sector = "${procurementSector}")`,
+    nonNupcoRequestTypeOptions,
+  );
+  await showPicklistValuesTableOnPage(
+    page,
+    `Request Type — Non-NUPCO → ${part3RequestType}`,
+    nonNupcoRequestTypeOptions,
+  );
+  await clickPicklistOptionInOpenList(
+    nonNupcoRequestTypeListbox,
+    part3RequestType,
+  );
+  await expectPicklistShowsValue(section, "Request Type", part3RequestType);
+
+  part1DetailLog(
+    `[Part 1] Continuation — Step 29: Verify Request Type after "${part3RequestType}" (Procurement Channel = "${part3ProcurementChannel}")`,
+  );
+  await assertPicklistEnabledAfterDependency(
+    section,
+    "Request Type",
+    `after Request Type = "${part3RequestType}" (Procurement Channel = "${part3ProcurementChannel}")`,
+  );
+
+  part1DetailLog(
+    `[Part 1] Continuation — Steps 30–31: Re-open Request Type → ${part3RequestTypeKfsh} (after "${part3RequestType}")`,
+  );
+  const kfshRequestTypeListbox = await openPicklistDropdown(
+    page,
+    section,
+    "Request Type",
+  );
+  const kfshRequestTypeOptions =
+    await readOpenPicklistOptions(kfshRequestTypeListbox);
+  validateRequestTypePicklistIncludesKfsh(kfshRequestTypeOptions);
+  logPicklistValuesTable(
+    `Request Type — after "${part3RequestType}" (Channel = "${part3ProcurementChannel}") → ${part3RequestTypeKfsh}`,
+    kfshRequestTypeOptions,
+  );
+  await showPicklistValuesTableOnPage(
+    page,
+    `Request Type — reopen (${part3RequestType} → ${part3RequestTypeKfsh})`,
+    kfshRequestTypeOptions,
+  );
+  await clickPicklistOptionInOpenList(
+    kfshRequestTypeListbox,
+    part3RequestTypeKfsh,
+  );
+  await expectPicklistShowsValue(section, "Request Type", part3RequestTypeKfsh);
+
+  logPart1ProcurementClassificationMatrix(true);
+  part1DetailLog(
+    `\n[Part 1] Finished (with continuation): Procurement Sector="${procurementSector}", Procurement Channel="${part3ProcurementChannel}", ` +
+      `Request Type="${part3RequestTypeKfsh}" (channel: NUPCO → Etimad → Non-NUPCO; Request Type: ${part3RequestType} → ${part3RequestTypeKfsh})\n`,
   );
 }

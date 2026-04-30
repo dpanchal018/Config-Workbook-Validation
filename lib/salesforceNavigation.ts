@@ -118,7 +118,7 @@ export async function clickNewLeadButton(page: Page): Promise<void> {
 function modalInnerTextLooksGeoOnly(text: string): boolean {
   const t = text.toLowerCase();
   const geoish =
-    /geolocation|geo-?location|access to\s*geo|know your location|use your location|location permission|wants to know your location/.test(
+    /geolocation|geo\s*-?\s*location|access to\s*geo|know your location|use your location|location permission|wants to know your location|location services/.test(
       t,
     );
   const leadish =
