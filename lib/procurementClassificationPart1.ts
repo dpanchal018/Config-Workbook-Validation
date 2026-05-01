@@ -208,6 +208,28 @@ export function validateProcurementChannelPicklistForPublic(
   ).toBeTruthy();
 }
 
+/** Procurement Channel when **Procurement Sector** = Private (Part 2). */
+export function validateProcurementChannelPicklistForPrivateIncludesTender(
+  options: string[],
+): void {
+  expect(
+    options.some((o) => /^tender$/i.test(o.trim())),
+    `Channel picklist (Sector=Private) should include Tender. Values: ${JSON.stringify(options)}`,
+  ).toBeTruthy();
+}
+
+export function validateProcurementChannelPicklistIncludesDirectPurchase(
+  options: string[],
+): void {
+  expect(
+    options.some((o) => {
+      const n = o.trim().replace(/\s+/g, " ").toLowerCase();
+      return n === "direct purchase";
+    }),
+    `Procurement Channel picklist should include Direct Purchase. Values: ${JSON.stringify(options)}`,
+  ).toBeTruthy();
+}
+
 export function validateRequestTypePicklistForNupco(
   options: string[],
 ): void {
@@ -223,6 +245,24 @@ export function validateRequestTypePicklistIncludesTender(
   expect(
     options.some((o) => /^tender$/i.test(o.trim())),
     `Request Type picklist should include Tender. Values: ${JSON.stringify(options)}`,
+  ).toBeTruthy();
+}
+
+export function validateRequestTypePicklistIncludesNormal(
+  options: string[],
+): void {
+  expect(
+    options.some((o) => /^normal$/i.test(o.trim())),
+    `Request Type picklist should include Normal. Values: ${JSON.stringify(options)}`,
+  ).toBeTruthy();
+}
+
+export function validateRequestTypePicklistIncludesBudgetary(
+  options: string[],
+): void {
+  expect(
+    options.some((o) => /^budgetary$/i.test(o.trim())),
+    `Request Type picklist should include Budgetary. Values: ${JSON.stringify(options)}`,
   ).toBeTruthy();
 }
 

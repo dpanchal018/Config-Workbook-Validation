@@ -1,7 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { registerGeoLocationAutoDismiss } from "../lib/geoLocationPopup";
 import { loadSalesforceCredentials } from "../lib/loadCredentials";
+import { runLeadCreationModalPart3 } from "../lib/leadCreationModalPart3";
 import { runProcurementClassificationPart1 } from "../lib/procurementClassificationPart1";
+import { runProcurementClassificationPart2 } from "../lib/procurementClassificationPart2";
 import { stepPassed } from "../lib/stepStatus";
 import {
   captureLeadListViewScreenshot,
@@ -16,7 +18,7 @@ import {
   waitForSalesforceHome,
 } from "../lib/salesforceNavigation";
 
-test("Salesforce login through Procurement Classification — Part 1", async ({
+test("Salesforce login — Lead Modal Part 3, then Procurement Parts 1–2", async ({
   page,
 }, testInfo) => {
   const creds = loadSalesforceCredentials();
@@ -79,6 +81,13 @@ test("Salesforce login through Procurement Classification — Part 1", async ({
     stepPassed("New Lead modal");
   });
 
+  await test.step("Lead Creation Modal — Part 3 (Excel vs UI fields)", async () => {
+    const modal = await waitForNewLeadModal(page);
+    await page.waitForTimeout(600);
+    await runLeadCreationModalPart3(page, modal);
+    stepPassed("Lead Creation Modal — Part 3");
+  });
+
   await test.step("Procurement Classification section", async () => {
     const modal = await waitForNewLeadModal(page);
     const section = await procurementClassificationSection(modal);
@@ -96,5 +105,12 @@ test("Salesforce login through Procurement Classification — Part 1", async ({
     const section = await procurementClassificationSection(modal);
     await runProcurementClassificationPart1(page, section);
     stepPassed("Procurement Classification — Part 1");
+  });
+
+  await test.step("Procurement Classification — Part 2", async () => {
+    const modal = await waitForNewLeadModal(page);
+    const section = await procurementClassificationSection(modal);
+    await runProcurementClassificationPart2(page, section);
+    stepPassed("Procurement Classification — Part 2");
   });
 });
