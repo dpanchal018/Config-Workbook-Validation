@@ -11,7 +11,7 @@ fs.mkdirSync(dir, { recursive: true });
 
 const wb = XLSX.utils.book_new();
 const ws = XLSX.utils.aoa_to_sheet([
-  ["Procurement Sector", "Procurement Channel", "Request Type"],
+  ["Sector", "Channel", "Request Type"],
   ["REPLACE_WITH_VALID_SECTOR", "REPLACE_WITH_VALID_CHANNEL", "REPLACE_WITH_VALID_REQUEST_TYPE"],
 ]);
 ws["!cols"] = [{ wch: 28 }, { wch: 30 }, { wch: 36 }];

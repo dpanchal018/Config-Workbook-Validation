@@ -6,11 +6,15 @@
     "test": "playwright test",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
-    "report": "playwright show-report",
+    "report": "node scripts/open-playwright-report-chrome.cjs",
+    "report:chrome": "node scripts/open-playwright-report-chrome.cjs",
     "init:credentials": "node scripts/create-credentials-template.cjs",
     "init:procurement-expected": "node scripts/create-procurement-expected-template.cjs",
     "auto-commit:watch": "node scripts/auto-commit-watch.cjs",
-    "credentials:set-password": "node scripts/set-salesforce-password.cjs"
+    "credentials:set-password": "node scripts/set-salesforce-password.cjs",
+    "jira:push-part3-bugs": "node scripts/jira-create-bugs-from-part3.cjs",
+    "jira:push-part3-subtasks": "node scripts/jira-create-bugs-from-part3.cjs",
+    "jira:delete-issues": "node scripts/jira-delete-issues.cjs"
   },
   "keywords": [],
   "author": "",

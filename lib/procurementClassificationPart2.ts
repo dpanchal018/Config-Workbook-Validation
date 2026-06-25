@@ -13,10 +13,15 @@ import {
   assertPicklistDisabledForDependency,
   assertPicklistEnabledAfterDependency,
   clickPicklistOptionInOpenList,
+  dismissOpenPicklistIfVisible,
   expectPicklistShowsValue,
   openPicklistDropdown,
+  PROCUREMENT_CHANNEL_FIELD,
+  PROCUREMENT_SECTOR_FIELD,
   readOpenPicklistOptions,
 } from "./salesforceProcurementPicklists";
+import { prepareProcurementClassificationForInteraction } from "./salesforceNavigation";
+import { consoleTableWithStatusHighlight } from "./consoleTableStatus";
 import { isProcurementTestVerbose } from "./procurementTestLog";
 
 function part2DetailLog(...args: Parameters<typeof console.log>): void {
@@ -24,14 +29,7 @@ function part2DetailLog(...args: Parameters<typeof console.log>): void {
 }
 
 async function dismissOpenListboxIfVisible(page: Page): Promise<void> {
-  const lb = page.locator('[role="listbox"]').first();
-  if (await lb.isVisible().catch(() => false)) {
-    await page.keyboard.press("Escape");
-    await lb.waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
-    await page.waitForTimeout(300);
-  } else {
-    await page.waitForTimeout(200);
-  }
+  await dismissOpenPicklistIfVisible(page);
 }
 
 /** Fixed values for Part 2 (after Part 1 completes on Public). */
@@ -63,20 +61,20 @@ export function getPart2ProcurementClassificationMatrixRows(): Part2ProcurementC
   const v = PART2_VALUES;
   return [
     {
-      "Procurement Sector": v.procurementSector,
-      "Procurement Channel": v.procurementChannel,
+      Sector: v.procurementSector,
+      Channel: v.procurementChannel,
       "Request Type": v.requestTypeNormal,
       Status: "Pass",
     },
     {
-      "Procurement Sector": v.procurementSector,
-      "Procurement Channel": v.procurementChannel,
+      Sector: v.procurementSector,
+      Channel: v.procurementChannel,
       "Request Type": v.requestTypeBudgetary,
       Status: "Pass",
     },
     {
-      "Procurement Sector": v.procurementSector,
-      "Procurement Channel": v.procurementChannelDirectPurchase,
+      Sector: v.procurementSector,
+      Channel: v.procurementChannelDirectPurchase,
       "Request Type": PART2_MATRIX_REQUEST_TYPE_DISABLED_LABEL,
       Status: "Pass",
     },
@@ -85,7 +83,7 @@ export function getPart2ProcurementClassificationMatrixRows(): Part2ProcurementC
 
 /** Terminal summary: `console.table` matching Part 2 picklist steps through Direct Purchase channel. */
 export function logPart2ProcurementClassificationMatrix(): void {
-  console.table(getPart2ProcurementClassificationMatrixRows());
+  consoleTableWithStatusHighlight(getPart2ProcurementClassificationMatrixRows());
 }
 
 /**
@@ -94,7 +92,7 @@ export function logPart2ProcurementClassificationMatrix(): void {
  */
 export async function runProcurementClassificationPart2(
   page: Page,
-  section: Locator,
+  modal: Locator,
 ): Promise<void> {
   const {
     procurementSector,
@@ -104,6 +102,7 @@ export async function runProcurementClassificationPart2(
     requestTypeBudgetary,
   } = PART2_VALUES;
 
+  await prepareProcurementClassificationForInteraction(page, modal);
   await dismissOpenListboxIfVisible(page);
 
   part2DetailLog(
@@ -111,8 +110,8 @@ export async function runProcurementClassificationPart2(
   );
   const listbox = await openPicklistDropdown(
     page,
-    section,
-    "Procurement Sector",
+    modal,
+    PROCUREMENT_SECTOR_FIELD,
   );
   const options = await readOpenPicklistOptions(listbox);
   validateProcurementSectorPicklist(options);
@@ -126,7 +125,7 @@ export async function runProcurementClassificationPart2(
     options,
   );
   await clickPicklistOptionInOpenList(listbox, procurementSector);
-  await expectPicklistShowsValue(section, "Procurement Sector", procurementSector);
+  await expectPicklistShowsValue(modal, PROCUREMENT_SECTOR_FIELD, procurementSector);
 
   part2DetailLog(
     `[Part 2] Confirmed Procurement Sector = "${procurementSector}".`,
@@ -138,8 +137,8 @@ export async function runProcurementClassificationPart2(
     `[Part 2] Verify Procurement Channel enabled after Procurement Sector = "${procurementSector}"`,
   );
   await assertPicklistEnabledAfterDependency(
-    section,
-    "Procurement Channel",
+    modal,
+    PROCUREMENT_CHANNEL_FIELD,
     `after Procurement Sector = "${procurementSector}"`,
   );
 
@@ -148,8 +147,8 @@ export async function runProcurementClassificationPart2(
   );
   const channelListbox = await openPicklistDropdown(
     page,
-    section,
-    "Procurement Channel",
+    modal,
+    PROCUREMENT_CHANNEL_FIELD,
   );
   const channelOptions = await readOpenPicklistOptions(channelListbox);
   validateProcurementChannelPicklistForPrivateIncludesTender(channelOptions);
@@ -164,8 +163,8 @@ export async function runProcurementClassificationPart2(
   );
   await clickPicklistOptionInOpenList(channelListbox, procurementChannel);
   await expectPicklistShowsValue(
-    section,
-    "Procurement Channel",
+    modal,
+    PROCUREMENT_CHANNEL_FIELD,
     procurementChannel,
   );
 
@@ -179,7 +178,7 @@ export async function runProcurementClassificationPart2(
     `[Part 2] Continuation — verify Request Type enabled after Procurement Channel = "${procurementChannel}"`,
   );
   await assertPicklistEnabledAfterDependency(
-    section,
+    modal,
     "Request Type",
     `after Procurement Channel = "${procurementChannel}" (Procurement Sector = "${procurementSector}")`,
   );
@@ -189,7 +188,7 @@ export async function runProcurementClassificationPart2(
   );
   const requestTypeListbox = await openPicklistDropdown(
     page,
-    section,
+    modal,
     "Request Type",
   );
   const requestTypeOptions =
@@ -208,7 +207,7 @@ export async function runProcurementClassificationPart2(
     requestTypeListbox,
     requestTypeNormal,
   );
-  await expectPicklistShowsValue(section, "Request Type", requestTypeNormal);
+  await expectPicklistShowsValue(modal, "Request Type", requestTypeNormal);
 
   part2DetailLog(
     `[Part 2] Confirmed Request Type = "${requestTypeNormal}".`,
@@ -220,7 +219,7 @@ export async function runProcurementClassificationPart2(
     `[Part 2] Continuation — verify Request Type after "${requestTypeNormal}"`,
   );
   await assertPicklistEnabledAfterDependency(
-    section,
+    modal,
     "Request Type",
     `after Request Type = "${requestTypeNormal}" (Channel = "${procurementChannel}")`,
   );
@@ -230,7 +229,7 @@ export async function runProcurementClassificationPart2(
   );
   const budgetaryListbox = await openPicklistDropdown(
     page,
-    section,
+    modal,
     "Request Type",
   );
   const budgetaryOptions = await readOpenPicklistOptions(budgetaryListbox);
@@ -249,7 +248,7 @@ export async function runProcurementClassificationPart2(
     requestTypeBudgetary,
   );
   await expectPicklistShowsValue(
-    section,
+    modal,
     "Request Type",
     requestTypeBudgetary,
   );
@@ -264,8 +263,8 @@ export async function runProcurementClassificationPart2(
     `[Part 2] Continuation — verify Procurement Channel after Request Type = "${requestTypeBudgetary}"`,
   );
   await assertPicklistEnabledAfterDependency(
-    section,
-    "Procurement Channel",
+    modal,
+    PROCUREMENT_CHANNEL_FIELD,
     `after Request Type = "${requestTypeBudgetary}" (Sector = "${procurementSector}")`,
   );
 
@@ -274,8 +273,8 @@ export async function runProcurementClassificationPart2(
   );
   const channelDpListbox = await openPicklistDropdown(
     page,
-    section,
-    "Procurement Channel",
+    modal,
+    PROCUREMENT_CHANNEL_FIELD,
   );
   const channelDpOptions = await readOpenPicklistOptions(channelDpListbox);
   validateProcurementChannelPicklistIncludesDirectPurchase(channelDpOptions);
@@ -293,8 +292,8 @@ export async function runProcurementClassificationPart2(
     procurementChannelDirectPurchase,
   );
   await expectPicklistShowsValue(
-    section,
-    "Procurement Channel",
+    modal,
+    PROCUREMENT_CHANNEL_FIELD,
     procurementChannelDirectPurchase,
   );
 
@@ -306,7 +305,7 @@ export async function runProcurementClassificationPart2(
     `[Part 2] Expect Request Type disabled after Procurement Channel = "${procurementChannelDirectPurchase}"`,
   );
   await assertPicklistDisabledForDependency(
-    section,
+    modal,
     "Request Type",
     `after Procurement Channel = "${procurementChannelDirectPurchase}" (Sector = "${procurementSector}")`,
   );

@@ -2,6 +2,12 @@ import { expect } from "@playwright/test";
 import { isProcurementTestVerbose } from "./procurementTestLog";
 import type { Locator, Page } from "@playwright/test";
 
+/** New Lead modal — Procurement Classification picklist labels (Salesforce UI). */
+export const PROCUREMENT_SECTOR_FIELD = "Sector";
+export const PROCUREMENT_CHANNEL_FIELD = "Channel";
+/** Dependent on Business Unit on the New Lead modal. */
+export const DIVISION_FIELD = "Division";
+
 function escapeReg(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -9,8 +15,8 @@ function escapeReg(s: string): string {
 /**
  * Resolves the combobox for a field label inside a modal section.
  * Prefers the SLDS / lightning-input-field row whose label matches exactly — so
- * "Procurement Channel" never binds to the "Procurement Sector" control when Lightning
- * tweaks accessible names or document order (common cause of flaky `.first()` on role alone).
+ * **Channel** never binds to the **Sector** control when Lightning tweaks accessible
+ * names or document order (common cause of flaky `.first()` on role alone).
  */
 export function picklistCombobox(scope: Locator, fieldLabel: string): Locator {
   const page = scope.page();
@@ -41,14 +47,75 @@ export function picklistCombobox(scope: Locator, fieldLabel: string): Locator {
     .locator('button[role="combobox"], .slds-combobox__input')
     .first();
 
-  return byFormRow.or(byRole).or(fallback);
+  // Single target — avoids strict-mode violations when more than one branch matches.
+  return byFormRow.or(byRole).or(fallback).first();
 }
 
+/**
+ * Picks the first **visible** combobox for `fieldLabel` (skips hidden duplicates from collapsed rows / stale DOM).
+ */
 export async function picklistTrigger(
   scope: Locator,
   fieldLabel: string,
 ): Promise<Locator> {
+  const page = scope.page();
+  const labelLine = new RegExp(
+    `^\\s*${escapeReg(fieldLabel)}\\s*(\\*|\\(Required\\)|\\(required\\))?$`,
+    "i",
+  );
+  const labelRe = new RegExp(escapeReg(fieldLabel), "i");
+  const nameRe = new RegExp(
+    `^\\s*${escapeReg(fieldLabel)}\\s*(\\*|\\(Required\\)|\\(required\\))?\\s*$`,
+    "i",
+  );
+
+  const formRows = scope
+    .locator(".slds-form-element, lightning-input-field")
+    .filter({
+      has: page
+        .locator(
+          "label, .slds-form-element__label, span.slds-form-element__label, legend",
+        )
+        .filter({ hasText: labelLine }),
+    });
+  const rowCount = await formRows.count();
+  for (let i = 0; i < rowCount; i++) {
+    const combo = formRows.nth(i).getByRole("combobox").first();
+    if (await combo.isVisible({ timeout: 700 }).catch(() => false)) return combo;
+  }
+
+  const byRole = scope.getByRole("combobox", { name: nameRe });
+  const roleCount = await byRole.count();
+  for (let i = 0; i < roleCount; i++) {
+    const combo = byRole.nth(i);
+    if (await combo.isVisible({ timeout: 700 }).catch(() => false)) return combo;
+  }
+
+  const fallbackHosts = scope
+    .locator("lightning-combobox, lightning-picklist, lightning-base-combobox")
+    .filter({ hasText: labelRe });
+  const fbCount = await fallbackHosts.count();
+  for (let i = 0; i < fbCount; i++) {
+    const combo = fallbackHosts
+      .nth(i)
+      .locator('button[role="combobox"], .slds-combobox__input')
+      .first();
+    if (await combo.isVisible({ timeout: 700 }).catch(() => false)) return combo;
+  }
+
   return picklistCombobox(scope, fieldLabel);
+}
+
+/**
+ * Escape only when a picklist listbox is open — avoids closing the New Lead modal when nothing is open.
+ */
+export async function dismissOpenPicklistIfVisible(page: Page): Promise<void> {
+  const lb = page.locator('[role="listbox"]').first();
+  if (await lb.isVisible().catch(() => false)) {
+    await page.keyboard.press("Escape");
+    await lb.waitFor({ state: "hidden", timeout: 5_000 }).catch(() => {});
+    await page.waitForTimeout(300);
+  }
 }
 
 /**
@@ -102,17 +169,29 @@ async function listboxForOpenedPicklist(
   });
 }
 
+export type OpenPicklistDropdownTimeouts = {
+  /** Default 30_000 */
+  triggerWaitMs?: number;
+  /** Default 15_000 */
+  listboxWaitMs?: number;
+};
+
 /** Opens the Lightning picklist dropdown and waits for that field's listbox. */
 export async function openPicklistDropdown(
   page: Page,
   scope: Locator,
   fieldLabel: string,
+  timeouts?: OpenPicklistDropdownTimeouts,
 ): Promise<Locator> {
+  const tw = timeouts?.triggerWaitMs ?? 30_000;
+  const lw = timeouts?.listboxWaitMs ?? 15_000;
+  await dismissOpenPicklistIfVisible(page);
   const trigger = await picklistTrigger(scope, fieldLabel);
-  await trigger.waitFor({ state: "visible", timeout: 30_000 });
+  await trigger.scrollIntoViewIfNeeded({ timeout: tw }).catch(() => {});
+  await trigger.waitFor({ state: "visible", timeout: tw });
   await trigger.click();
   const listbox = await listboxForOpenedPicklist(page, trigger, fieldLabel);
-  await listbox.waitFor({ state: "visible", timeout: 15_000 });
+  await listbox.waitFor({ state: "visible", timeout: lw });
   return listbox;
 }
 
@@ -188,6 +267,28 @@ function optionRowHasTextPattern(optionLabel: string): RegExp {
   return new RegExp(tokens.map(escapeReg).join("[\\s\\-–—\\u00A0]*"), "i");
 }
 
+export type PicklistSelectOptions = {
+  /** Ms to wait after the listbox closes (default 500). */
+  listboxCloseSettleMs?: number;
+  /** Ms to wait after {@link selectPicklistOption} finishes (overrides SF_PICKLIST_POST_CLICK_MS). */
+  postClickSettleMs?: number;
+};
+
+function picklistListboxCloseSettleMs(opts?: PicklistSelectOptions): number {
+  if (opts?.listboxCloseSettleMs != null && Number.isFinite(opts.listboxCloseSettleMs)) {
+    return Math.max(0, Math.min(opts.listboxCloseSettleMs, 2_500));
+  }
+  return 500;
+}
+
+function picklistPostClickSettleMs(opts?: PicklistSelectOptions): number {
+  if (opts?.postClickSettleMs != null && Number.isFinite(opts.postClickSettleMs)) {
+    return Math.max(0, Math.min(opts.postClickSettleMs, 2_500));
+  }
+  const settle = parseInt(process.env.SF_PICKLIST_POST_CLICK_MS ?? "200", 10);
+  return Number.isFinite(settle) && settle >= 0 ? Math.min(settle, 2_500) : 200;
+}
+
 /**
  * Clicks an option in the open listbox. Prefers `[role=option]` + `hasText` (Lightning-friendly),
  * then scans rows, then getByRole("option") with a flexible name pattern.
@@ -195,15 +296,17 @@ function optionRowHasTextPattern(optionLabel: string): RegExp {
 export async function clickPicklistOptionInOpenList(
   listbox: Locator,
   optionLabel: string,
+  opts?: PicklistSelectOptions,
 ): Promise<void> {
   const page = listbox.page();
   await listbox.waitFor({ state: "visible", timeout: 10_000 });
+  const closeSettleMs = picklistListboxCloseSettleMs(opts);
 
   const tryCloseListbox = async (): Promise<void> => {
     await listbox
       .waitFor({ state: "hidden", timeout: 15_000 })
       .catch(() => {});
-    await page.waitForTimeout(500);
+    if (closeSettleMs > 0) await page.waitForTimeout(closeSettleMs);
   };
 
   const textPat = optionRowHasTextPattern(optionLabel);
@@ -265,28 +368,23 @@ export async function selectPicklistOption(
   scope: Locator,
   fieldLabel: string,
   optionLabel: string,
+  opts?: PicklistSelectOptions,
 ): Promise<void> {
   const listbox = await openPicklistDropdown(page, scope, fieldLabel);
-
-  const option = listbox
-    .getByRole("option", {
-      name: new RegExp(`^\\s*${escapeReg(optionLabel)}\\s*$`, "i"),
-    })
-    .first();
-  await option.waitFor({ state: "visible", timeout: 20_000 });
-  await option.click();
+  await clickPicklistOptionInOpenList(listbox, optionLabel, opts);
 
   await listbox
     .waitFor({ state: "hidden", timeout: 15_000 })
     .catch(() => {});
-  await page.waitForTimeout(500);
+  const settle = picklistPostClickSettleMs(opts);
+  if (settle > 0) await page.waitForTimeout(settle);
 }
 
 export async function readPicklistDisplayedValue(
   scope: Locator,
   fieldLabel: string,
 ): Promise<string> {
-  const combo = picklistCombobox(scope, fieldLabel);
+  const combo = await picklistTrigger(scope, fieldLabel);
 
   const box = combo.locator(
     "xpath=ancestor::div[contains(@class,'slds-combobox')][1]",
@@ -306,34 +404,83 @@ export async function readPicklistDisplayedValue(
   return raw.replace(/\s+/g, " ").trim();
 }
 
-async function picklistLooksDisabled(combo: Locator): Promise<boolean> {
+/**
+ * Whether the Lightning combobox host in the event path applies `slds-is-disabled`.
+ * Uses composedPath so it works when the trigger lives in shadow DOM (XPath ancestor alone often misses the host).
+ */
+async function lightningPicklistHostHasDisabledClass(
+  combo: Locator,
+): Promise<boolean | null> {
+  try {
+    return await combo.evaluate((el: Element): boolean | null => {
+      const seen = new Set<Element>();
+      let cur: Element | null = el;
+      while (cur && !seen.has(cur)) {
+        seen.add(cur);
+        const tag = cur.tagName.toLowerCase();
+        if (tag === "lightning-base-combobox" || tag === "lightning-combobox") {
+          const cls = cur.getAttribute("class") || "";
+          return cls.includes("slds-is-disabled");
+        }
+        if (cur.parentElement) {
+          cur = cur.parentElement;
+        } else {
+          const rn = cur.getRootNode();
+          if (rn instanceof ShadowRoot) {
+            cur = rn.host as Element;
+          } else {
+            break;
+          }
+        }
+      }
+      return null;
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function picklistComboAppearsDisabled(combo: Locator): Promise<boolean> {
+  const hostDis = await lightningPicklistHostHasDisabledClass(combo);
+  if (hostDis === true) return true;
+
   if (await combo.isDisabled().catch(() => false)) return true;
   if ((await combo.getAttribute("aria-disabled")) === "true") return true;
-  const inp = combo.locator("input").first();
-  if ((await inp.count()) > 0 && (await inp.getAttribute("disabled")) !== null) {
-    return true;
+
+  try {
+    const inp = combo.locator("input").first();
+    if ((await inp.count()) > 0 && (await inp.getAttribute("disabled")) !== null) {
+      return true;
+    }
+  } catch {
+    /* locator may be resolving while DOM updates */
   }
-  const base = combo.locator("xpath=ancestor::lightning-base-combobox[1]").first();
-  if ((await base.count()) > 0) {
-    const cls = (await base.getAttribute("class")) || "";
-    if (cls.includes("slds-is-disabled")) return true;
+
+  if (hostDis === null) {
+    try {
+      const base = combo
+        .locator(
+          "xpath=ancestor::*[self::lightning-base-combobox or self::lightning-combobox][1]",
+        )
+        .first();
+      if ((await base.count()) > 0) {
+        const cls = (await base.getAttribute("class")) || "";
+        if (cls.includes("slds-is-disabled")) return true;
+      }
+    } catch {
+      /* detached / strict */
+    }
   }
+
   return false;
 }
 
+async function picklistLooksDisabled(combo: Locator): Promise<boolean> {
+  return picklistComboAppearsDisabled(combo);
+}
+
 async function picklistLooksEnabled(combo: Locator): Promise<boolean> {
-  if (await combo.isDisabled().catch(() => false)) return false;
-  if ((await combo.getAttribute("aria-disabled")) === "true") return false;
-  const inp = combo.locator("input").first();
-  if ((await inp.count()) > 0 && (await inp.getAttribute("disabled")) !== null) {
-    return false;
-  }
-  const base = combo.locator("xpath=ancestor::lightning-base-combobox[1]").first();
-  if ((await base.count()) > 0) {
-    const cls = (await base.getAttribute("class")) || "";
-    if (cls.includes("slds-is-disabled")) return false;
-  }
-  return true;
+  return !(await picklistComboAppearsDisabled(combo));
 }
 
 /**
@@ -375,7 +522,8 @@ export async function assertPicklistEnabledAfterDependency(
       message: `${fieldLabel} should become enabled (${because})`,
     })
     .toBe(true);
-  await expect(combo).toBeEnabled({ timeout: 5_000 });
+  // Do not also assert `toBeEnabled` on the combobox locator: Salesforce LWC often exposes a
+  // composite control where Playwright's enabled check disagrees with the same UX our poll uses.
   if (isProcurementTestVerbose()) {
     console.log(`${fieldLabel} -> Enabled (${because})`);
   }
