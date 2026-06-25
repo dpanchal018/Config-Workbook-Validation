@@ -1,4 +1,5 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import type { Locator, Page, TestInfo } from "@playwright/test";
 import { registerGeoLocationAutoDismiss } from "../lib/geoLocationPopup";
 import { loadSalesforceCredentials } from "../lib/loadCredentials";
 import { runLeadCreationModalPart3 } from "../lib/leadCreationModalPart3";
@@ -7,7 +8,6 @@ import { runProcurementClassificationPart2 } from "../lib/procurementClassificat
 import { stepPassed } from "../lib/stepStatus";
 import {
   captureLeadListViewScreenshot,
-  captureNewLeadModalScreenshot,
   captureProcurementClassificationSectionScreenshot,
   clickNewLeadButton,
   homeSettleMs,
@@ -18,9 +18,13 @@ import {
   waitForSalesforceHome,
 } from "../lib/salesforceNavigation";
 
-test("Salesforce login — Lead Modal Part 3, then Procurement Parts 1–2", async ({
-  page,
-}, testInfo) => {
+/**
+ * Login → Home → Lead list → **New** — returns the open New Lead modal container.
+ */
+async function authenticateAndOpenNewLeadModal(
+  page: Page,
+  testInfo: TestInfo,
+): Promise<Locator> {
   const creds = loadSalesforceCredentials();
   await registerGeoLocationAutoDismiss(page);
 
@@ -70,16 +74,22 @@ test("Salesforce login — Lead Modal Part 3, then Procurement Parts 1–2", asy
 
   await test.step("New Lead modal", async () => {
     await clickNewLeadButton(page);
-    const modal = await waitForNewLeadModal(page);
+    await waitForNewLeadModal(page);
     await page.waitForTimeout(800);
-
-    const modalShotPath = await captureNewLeadModalScreenshot(modal);
-    await testInfo.attach("new-lead-modal.png", {
-      path: modalShotPath,
-      contentType: "image/png",
-    });
     stepPassed("New Lead modal");
   });
+
+  return waitForNewLeadModal(page);
+}
+
+/**
+ * Part 3 (Excel vs UI audit + Jira bug drafts) → Procurement Classification Part 1 + Part 2.
+ * No Save — modal stays open. Jira bugs are pushed after the run via Config+JIRA.bat when credentials are set.
+ */
+test("Lead — Part 3, Procurement Classification Part 1 and Part 2 (modal, no Save)", async ({
+  page,
+}, testInfo) => {
+  await authenticateAndOpenNewLeadModal(page, testInfo);
 
   await test.step("Lead Creation Modal — Part 3 (Excel vs UI fields)", async () => {
     const modal = await waitForNewLeadModal(page);
@@ -102,15 +112,19 @@ test("Salesforce login — Lead Modal Part 3, then Procurement Parts 1–2", asy
 
   await test.step("Procurement Classification — Part 1", async () => {
     const modal = await waitForNewLeadModal(page);
-    const section = await procurementClassificationSection(modal);
-    await runProcurementClassificationPart1(page, section);
+    await runProcurementClassificationPart1(page, modal);
     stepPassed("Procurement Classification — Part 1");
   });
 
   await test.step("Procurement Classification — Part 2", async () => {
     const modal = await waitForNewLeadModal(page);
-    const section = await procurementClassificationSection(modal);
-    await runProcurementClassificationPart2(page, section);
+    await runProcurementClassificationPart2(page, modal);
     stepPassed("Procurement Classification — Part 2");
+  });
+
+  await test.step("New Lead modal still open (no Save)", async () => {
+    const modal = await waitForNewLeadModal(page);
+    await expect(modal).toBeVisible({ timeout: 15_000 });
+    stepPassed("New Lead modal still open");
   });
 });

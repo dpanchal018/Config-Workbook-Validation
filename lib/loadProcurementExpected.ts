@@ -31,7 +31,8 @@ function pick(
  * Loads expected picklist values from the first row of the first sheet.
  * Download your SharePoint workbook to this path, or set PROCUREMENT_EXPECTED_XLSX.
  *
- * Expected columns (header row): Procurement Sector, Procurement Channel, Request Type
+ * Expected columns (header row): Sector, Channel, Request Type
+ * (legacy headers Procurement Sector / Procurement Channel also accepted).
  */
 export function loadProcurementExpected(excelPath?: string): ProcurementExpected {
   const filePath =
@@ -47,7 +48,7 @@ export function loadProcurementExpected(excelPath?: string): ProcurementExpected
     throw new Error(
       `Procurement expected-values workbook not found: ${filePath}\n` +
         `Download the SharePoint Excel file into that path, or run: npm run init:procurement-expected\n` +
-        "Then set Procurement Sector, Procurement Channel, and Request Type in row 2.",
+        "Then set Sector, Channel, and Request Type in row 2.",
     );
   }
 
@@ -77,8 +78,8 @@ export function loadProcurementExpected(excelPath?: string): ProcurementExpected
   const requestType = pick(row, ["requesttype", "request type", "type"]);
 
   const missing: string[] = [];
-  if (!procurementSector) missing.push("Procurement Sector");
-  if (!procurementChannel) missing.push("Procurement Channel");
+  if (!procurementSector) missing.push("Sector");
+  if (!procurementChannel) missing.push("Channel");
   if (!requestType) missing.push("Request Type");
   if (missing.length) {
     throw new Error(

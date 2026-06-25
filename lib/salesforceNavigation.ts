@@ -5,6 +5,13 @@ import {
   denyGeolocationForCurrentOrigin,
   dismissGeoLocationPopupIfPresent,
 } from "./geoLocationPopup";
+import {
+  dismissOpenPicklistIfVisible,
+  picklistTrigger,
+  PROCUREMENT_CHANNEL_FIELD,
+  PROCUREMENT_SECTOR_FIELD,
+} from "./salesforceProcurementPicklists";
+import { settleLeadModalForFieldScan } from "./leadCreationModalPart3";
 
 /** Wait until Salesforce is past login (Lightning / My Domain home or app shell). */
 export async function waitForSalesforceHome(
@@ -217,8 +224,153 @@ export async function captureNewLeadModalScreenshot(
 
 const PROCUREMENT_SECTION = /Procurement Classification/i;
 
+function modalScrollContainer(modal: Locator): Locator {
+  return modal.locator(".slds-modal__content").first();
+}
+
+async function isProcurementSectorAccessible(modal: Locator): Promise<boolean> {
+  const trigger = await picklistTrigger(modal, PROCUREMENT_SECTOR_FIELD);
+  return trigger.isVisible({ timeout: 900 }).catch(() => false);
+}
+
+async function isProcurementClassificationSectionVisible(modal: Locator): Promise<boolean> {
+  return modal
+    .getByText(PROCUREMENT_SECTION)
+    .first()
+    .isVisible({ timeout: 900 })
+    .catch(() => false);
+}
+
+async function scrollProcurementSectorIntoView(modal: Locator): Promise<void> {
+  const trigger = await picklistTrigger(modal, PROCUREMENT_SECTOR_FIELD);
+  await trigger.scrollIntoViewIfNeeded({ timeout: 12_000 }).catch(() => {});
+}
+
+/**
+ * Scrolls the New Lead modal to **Procurement Classification**.
+ * Does not set Business Unit, Division, or any other form fields.
+ *
+ * @returns true when **Sector** picklist is visible and ready for Part 1/2.
+ */
+export async function scrollLeadModalToProcurementClassification(
+  page: Page,
+  modal: Locator,
+): Promise<boolean> {
+  await dismissOpenPicklistIfVisible(page);
+  await settleLeadModalForFieldScan(page, modal);
+  await expandProcurementSectionIfCollapsed(page, modal);
+
+  if (await isProcurementSectorAccessible(modal)) {
+    await scrollProcurementSectorIntoView(modal);
+    return true;
+  }
+
+  const content = modalScrollContainer(modal);
+  const scrollHost =
+    (await content.count()) > 0 && (await content.isVisible().catch(() => false))
+      ? content
+      : modal;
+
+  await scrollHost.evaluate((el: HTMLElement) => {
+    el.scrollTop = 0;
+  }).catch(() => {});
+  await page.waitForTimeout(220);
+
+  for (let step = 0; step < 36; step++) {
+    await modal.evaluate((root: Element) => {
+      function norm(s: string): string {
+        return s.replace(/\s+/g, " ").trim();
+      }
+      function visit(el: Element): HTMLElement | null {
+        if (
+          el.matches?.(
+            "label, .slds-form-element__label, span.slds-form-element__label, legend, h3, .slds-section__title, button",
+          )
+        ) {
+          const t = norm(el.textContent || "");
+          if (
+            /^Sector(\*|\s|\(|$)/i.test(t) ||
+            /^Procurement Classification(\*|\s|\(|$)/i.test(t)
+          ) {
+            return el as HTMLElement;
+          }
+        }
+        for (const ch of el.children) {
+          const r = visit(ch);
+          if (r) return r;
+        }
+        if (el.shadowRoot) {
+          for (const ch of el.shadowRoot.children) {
+            if (ch instanceof Element) {
+              const r = visit(ch);
+              if (r) return r;
+            }
+          }
+        }
+        return null;
+      }
+
+      const contentEl =
+        root.querySelector<HTMLElement>(".slds-modal__content") ||
+        (root as HTMLElement);
+      const hit = visit(root);
+      if (hit) {
+        hit.scrollIntoView({ block: "center", inline: "nearest" });
+        const tRect = hit.getBoundingClientRect();
+        const cRect = contentEl.getBoundingClientRect();
+        contentEl.scrollTop +=
+          tRect.top - cRect.top - Math.floor(contentEl.clientHeight * 0.22);
+        return;
+      }
+      contentEl.scrollTop += Math.floor(contentEl.clientHeight * 0.72);
+    });
+
+    await page.waitForTimeout(380);
+    await expandProcurementSectionIfCollapsed(page, modal);
+    if (await isProcurementSectorAccessible(modal)) {
+      await scrollProcurementSectorIntoView(modal);
+      return true;
+    }
+  }
+
+  await expandProcurementSectionIfCollapsed(page, modal);
+  if (await isProcurementSectorAccessible(modal)) {
+    await scrollProcurementSectorIntoView(modal);
+    return true;
+  }
+
+  if (await isProcurementClassificationSectionVisible(modal)) {
+    await modal.getByText(PROCUREMENT_SECTION).first().scrollIntoViewIfNeeded().catch(() => {});
+    return false;
+  }
+
+  return false;
+}
+
+async function expandProcurementSectionIfCollapsed(
+  page: Page,
+  modal: Locator,
+): Promise<void> {
+  const expandButtons = [
+    modal
+      .locator('button[aria-expanded="false"]')
+      .filter({ hasText: PROCUREMENT_SECTION })
+      .first(),
+    modal.locator('.slds-section__title-action[aria-expanded="false"]').first(),
+    modal.locator('button[aria-expanded="false"]').filter({ hasText: PROCUREMENT_SECTION }).first(),
+  ];
+  for (const btn of expandButtons) {
+    if (await btn.isVisible({ timeout: 1_200 }).catch(() => false)) {
+      await btn.click();
+      await page.waitForTimeout(500);
+      return;
+    }
+  }
+}
+
 /**
  * The "Procurement Classification" block inside the New Lead modal (region, SLDS section, fieldset, or layout section).
+ * Prefers a container that includes **Sector** (not just the section title).
  */
 export async function procurementClassificationSection(
   modal: Locator,
@@ -230,15 +382,39 @@ export async function procurementClassificationSection(
     return byRegion;
   }
 
-  const section = modal
+  const candidates = modal
     .locator(
       ".slds-section, fieldset.slds-form-element, lightning-record-layout-section",
     )
-    .filter({ hasText: PROCUREMENT_SECTION })
-    .first();
+    .filter({ hasText: PROCUREMENT_SECTION });
+
+  const withSector = candidates.filter({ hasText: /^Sector(\*|\s|\(|$)/i });
+  const section =
+    (await withSector.count()) > 0 ? withSector.first() : candidates.first();
 
   await section.waitFor({ state: "visible", timeout: 45_000 });
   return section;
+}
+
+/**
+ * Scroll to Procurement Classification and confirm **Sector** is ready for Part 1 / Part 2.
+ * Does not set Business Unit, Division, or run Part 3 validation.
+ */
+export async function prepareProcurementClassificationForInteraction(
+  page: Page,
+  modal: Locator,
+): Promise<void> {
+  const ready = await scrollLeadModalToProcurementClassification(page, modal);
+  if (!ready) {
+    throw new Error(
+      "Sector is not visible after scrolling to Procurement Classification. " +
+        "Expand the section if collapsed and confirm the field is on the New Lead layout.",
+    );
+  }
+  const sector = await picklistTrigger(modal, PROCUREMENT_SECTOR_FIELD);
+  await sector.waitFor({ state: "visible", timeout: 45_000 });
+  await scrollProcurementSectorIntoView(modal);
+  await page.waitForTimeout(250);
 }
 
 /** Screenshot of the Procurement Classification section only (not the full modal). */
@@ -249,6 +425,8 @@ export async function captureProcurementClassificationSectionScreenshot(
   const outDir = path.join(process.cwd(), "test-results");
   fs.mkdirSync(outDir, { recursive: true });
   const filePath = path.join(outDir, fileName);
+  const modal = section.page().locator(".slds-modal.slds-fade-in-open").first();
+  await scrollLeadModalToProcurementClassification(section.page(), modal).catch(() => {});
   await section.scrollIntoViewIfNeeded();
   await section.screenshot({ path: filePath });
   return filePath;
